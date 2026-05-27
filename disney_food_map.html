@@ -1,0 +1,2953 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🏰 ディズニー フードマップ</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #1a56b0; --primary-dark: #0e3a80;
+      --accent: #f5a623; --card: #fff;
+      --text: #1a1a2e; --text-light: #5a6a8a; --border: #d0daf0;
+      --eaten: #27ae60; --uneaten: #e74c3c;
+    }
+    body {
+      font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+      color: var(--text); height: 100vh;
+      display: flex; flex-direction: column; overflow: hidden;
+      background: #e8eeff;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+      color: #fff; padding: 8px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 1rem; font-weight: 700; }
+    header .subtitle { font-size: 0.68rem; opacity: 0.8; margin-top: 1px; }
+    .header-stats { display: flex; gap: 6px; }
+    .stat-badge {
+      background: rgba(255,255,255,0.18); border-radius: 20px;
+      padding: 3px 9px; font-size: 0.68rem; text-align: center;
+    }
+    .stat-badge span { font-weight: 700; font-size: 0.95rem; display: block; }
+
+    /* ── Park Tabs ──────────────────────────────── */
+    .park-tabs { display: flex; background: var(--primary-dark); flex-shrink: 0; }
+    .park-tab {
+      flex: 1; padding: 8px 4px; text-align: center;
+      font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.6);
+      cursor: pointer; border-bottom: 3px solid transparent;
+      transition: all 0.2s; user-select: none;
+    }
+    .park-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Layout ─────────────────────────────────── */
+    .main { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    /* ── Map Area ───────────────────────────────── */
+    .map-wrapper {
+      height: 52vh; flex-shrink: 0; position: relative; overflow: hidden;
+      background: #c8daf5;
+      transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      min-height: 0;
+    }
+    #map { position: absolute; inset: 0; }
+
+    /* overlay states */
+    .map-overlay {
+      position: absolute; inset: 0; z-index: 500;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(235,240,255,0.97);
+    }
+    .map-overlay.hidden { display: none; }
+
+    /* loading */
+    .loading-content { text-align: center; }
+    .spinner-ring {
+      width: 42px; height: 42px;
+      border: 4px solid #dde8ff; border-top-color: var(--primary);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-content p { font-size: 0.85rem; color: var(--text-light); }
+
+    /* upload */
+    .upload-content {
+      text-align: center; padding: 16px 20px;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      max-width: 320px;
+    }
+    .upload-icon { font-size: 2.8rem; }
+    .upload-content h3 { font-size: 0.98rem; font-weight: 700; color: var(--primary); }
+    .upload-content p { font-size: 0.78rem; color: var(--text-light); line-height: 1.5; }
+
+    .download-link {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #eef4ff; color: var(--primary);
+      padding: 8px 16px; border-radius: 20px; font-size: 0.78rem;
+      font-weight: 600; text-decoration: none; border: 1.5px solid #c0d4f8;
+    }
+    .upload-btn-label {
+      background: var(--primary); color: #fff;
+      padding: 11px 22px; border-radius: 12px; font-size: 0.88rem;
+      font-weight: 700; cursor: pointer; display: inline-block;
+    }
+    .upload-btn-label input { display: none; }
+    .upload-hint { font-size: 0.7rem; color: var(--text-light); }
+
+    /* map-ready controls */
+    .map-hint {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(26,86,176,0.82); color: #fff;
+      padding: 5px 14px; border-radius: 20px; font-size: 0.73rem;
+      pointer-events: none; z-index: 400; white-space: nowrap;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .map-hint.visible { opacity: 1; }
+    .btn-change-map {
+      position: absolute; top: 8px; right: 8px; z-index: 400;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 10px; font-size: 0.7rem;
+      font-weight: 600; cursor: pointer; color: var(--primary);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      display: none;
+    }
+    .btn-change-map.visible { display: block; }
+
+    /* ── 店舗位置設定モードバナー ──────────────────── */
+    .store-pin-banner {
+      position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+      background: #1a56b0; color: #fff;
+      padding: 8px 14px 8px 12px; border-radius: 24px;
+      font-size: 0.78rem; font-weight: 600; z-index: 500;
+      display: none; align-items: center; gap: 8px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.3); white-space: nowrap;
+      animation: bannerIn 0.2s ease;
+    }
+    .store-pin-banner.visible { display: flex; }
+    @keyframes bannerIn { from { opacity:0; transform: translateX(-50%) translateY(-6px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+    .store-pin-banner-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+    .store-pin-cancel {
+      background: rgba(255,255,255,0.22); border: none; color: #fff;
+      border-radius: 12px; padding: 2px 8px; font-size: 0.72rem;
+      cursor: pointer; white-space: nowrap;
+    }
+    .store-pin-cancel:hover { background: rgba(255,255,255,0.35); }
+    /* 店舗カードの📍ボタン */
+    .btn-pin-store {
+      background: none; border: 1.5px solid var(--border);
+      border-radius: 8px; width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; cursor: pointer; flex-shrink: 0;
+      color: #aab; transition: all 0.15s;
+    }
+    .btn-pin-store.has-pin { border-color: #27ae60; color: #27ae60; background: #edfaf3; }
+    .btn-pin-store:hover { border-color: #1a56b0; color: #1a56b0; background: #eef4ff; }
+
+    /* ── Split handle ────────────────────────────── */
+    .split-handle {
+      flex-shrink: 0; background: var(--primary);
+      padding: 6px 0 5px; cursor: ns-resize;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      user-select: none; touch-action: none;
+    }
+    .split-handle:active { background: var(--primary-dark); }
+    .handle-bar {
+      width: 40px; height: 4px; background: rgba(255,255,255,0.5);
+      border-radius: 2px;
+    }
+    .handle-label {
+      font-size: 0.65rem; color: rgba(255,255,255,0.85); font-weight: 600;
+      letter-spacing: 0.03em; pointer-events: none;
+    }
+    .snap-dots {
+      display: flex; gap: 4px; align-items: center;
+    }
+    .snap-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: rgba(255,255,255,0.3); transition: background 0.2s;
+    }
+    .snap-dot.active { background: var(--accent); }
+
+    /* ── Sidebar ─────────────────────────────────── */
+    .sidebar {
+      width: 100%; background: var(--card);
+      border-top: 2px solid var(--border);
+      display: flex; flex-direction: column; flex: 1; overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 10px 12px 8px; border-bottom: 1px solid var(--border);
+      background: #f8faff;
+    }
+    .sidebar-top-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .sidebar-header h2 { font-size: 0.88rem; font-weight: 700; color: var(--primary); }
+    .food-count { font-size: 0.72rem; color: var(--text-light); }
+
+    .search-bar {
+      display: flex; align-items: center; gap: 6px;
+      background: #fff; border: 1.5px solid var(--border);
+      border-radius: 20px; padding: 5px 12px; margin-bottom: 8px;
+    }
+    .search-bar input {
+      border: none; outline: none; font-size: 0.82rem;
+      font-family: inherit; color: var(--text); flex: 1; background: transparent;
+    }
+    .search-icon { color: var(--text-light); font-size: 0.82rem; }
+    .search-clear {
+      border: none; background: none; color: var(--text-light);
+      cursor: pointer; font-size: 0.9rem; display: none;
+    }
+    .search-clear.visible { display: block; }
+
+    .filter-row { display: flex; gap: 6px; }
+    .filter-btn {
+      flex: 1; padding: 5px 4px; border: 1.5px solid var(--border);
+      border-radius: 12px; font-size: 0.72rem; background: #fff;
+      cursor: pointer; transition: all 0.15s; text-align: center;
+    }
+    .filter-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .filter-btn.f-eaten.active  { background: var(--eaten);  border-color: var(--eaten); }
+    .filter-btn.f-uneaten.active{ background: var(--uneaten); border-color: var(--uneaten); }
+
+    /* ── Food List ───────────────────────────────── */
+    .food-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .food-list::-webkit-scrollbar { width: 4px; }
+    .food-list::-webkit-scrollbar-thumb { background: #c0ccee; border-radius: 3px; }
+
+    .food-card {
+      background: #f8faff; border: 1.5px solid var(--border);
+      border-radius: 10px; margin-bottom: 8px;
+      cursor: pointer; transition: border-color 0.15s; overflow: hidden;
+    }
+    .food-card:hover { border-color: var(--primary); }
+    .food-card.eaten  { border-left: 4px solid var(--eaten); }
+    .food-card.uneaten{ border-left: 4px solid var(--uneaten); }
+
+    .food-card-inner { display: flex; }
+    .food-thumb {
+      width: 68px; flex-shrink: 0; background: #e8efff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; min-height: 68px;
+    }
+    .food-thumb img { width: 68px; height: 100%; object-fit: cover; display: block; }
+    .food-card-body { flex: 1; padding: 9px 10px; min-width: 0; }
+
+    .food-card-top {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 4px;
+    }
+    .food-card-name {
+      font-size: 0.88rem; font-weight: 700; flex: 1;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+    .food-card-actions { display: flex; gap: 3px; flex-shrink: 0; }
+    .icon-btn {
+      width: 34px; height: 34px; border: none; border-radius: 8px;
+      cursor: pointer; font-size: 0.95rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .btn-eaten  { background: #e8f8ef; color: var(--eaten); }
+    .btn-eaten.done { background: var(--eaten); color: #fff; }
+    .btn-delete { background: #ffeef2; color: var(--uneaten); }
+    .btn-focus  { background: #e8f0ff; color: var(--primary); }
+
+    .food-card-meta { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .price-tag { font-size: 0.75rem; color: var(--accent); font-weight: 700; }
+    .area-tag  {
+      font-size: 0.68rem; background: #e8f0ff; color: var(--primary);
+      padding: 2px 7px; border-radius: 8px;
+    }
+    .food-card-note-wrap {
+      margin-top: 4px; cursor: pointer;
+    }
+    .food-card-note-empty {
+      font-size: 0.7rem; color: #bcc; font-style: italic;
+    }
+    .food-card-note {
+      font-size: 0.71rem; color: var(--text-light); margin-top: 3px; line-height: 1.4;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .empty-state {
+      text-align: center; padding: 30px 20px;
+      color: var(--text-light); font-size: 0.85rem; line-height: 1.8;
+    }
+    .empty-state .big { font-size: 2rem; }
+
+    /* ── Breadcrumb ───────────────────────────────── */
+    .breadcrumb {
+      display: none; align-items: center; gap: 4px; flex-wrap: wrap;
+      padding: 7px 12px; background: #eef2ff;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.74rem; flex-shrink: 0;
+    }
+    .breadcrumb.visible { display: flex; }
+    .bc-item {
+      color: var(--primary); cursor: pointer; font-weight: 600;
+      padding: 2px 0;
+    }
+    .bc-item:hover { text-decoration: underline; }
+    .bc-sep { color: #aab; margin: 0 1px; }
+    .bc-current { color: var(--text); font-weight: 700; }
+
+    /* ── Hierarchy cards (エリア・店舗) ─────────────── */
+    .hierarchy-card {
+      background: #fff; border: 1.5px solid var(--border);
+      border-radius: 12px; padding: 12px 12px 12px 14px;
+      margin-bottom: 8px; cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .hierarchy-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(26,86,176,0.1); }
+    .hierarchy-card-icon {
+      width: 44px; height: 44px; background: #e8f0ff;
+      border-radius: 10px; display: flex; align-items: center;
+      justify-content: center; font-size: 1.4rem; flex-shrink: 0;
+    }
+    .hierarchy-card-body { flex: 1; min-width: 0; }
+    .hierarchy-card-name { font-size: 0.92rem; font-weight: 700; margin-bottom: 3px; }
+    .hierarchy-card-sub  { font-size: 0.72rem; color: var(--text-light); margin-bottom: 5px; }
+    .progress-bar {
+      height: 5px; background: #dde8ff; border-radius: 3px; overflow: hidden;
+    }
+    .progress-fill { height: 100%; background: var(--eaten); border-radius: 3px; transition: width 0.4s; }
+    .hierarchy-chevron { color: #aab; font-size: 1.3rem; flex-shrink: 0; }
+
+    /* サムネイル行 */
+    .thumb-row { display: flex; gap: 3px; margin-top: 5px; }
+    .thumb-mini {
+      width: 30px; height: 30px; border-radius: 5px;
+      object-fit: cover; border: 1px solid var(--border);
+    }
+
+    /* ── Modal (bottom sheet) ─────────────────────── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(10,20,60,0.55); z-index: 2000;
+      align-items: flex-end; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card); border-radius: 20px 20px 0 0;
+      padding: 20px 20px 36px; width: 100%; max-width: 480px;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.25);
+      animation: slideUp 0.25s ease; max-height: 88vh; overflow-y: auto;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .modal-drag {
+      width: 36px; height: 4px; background: #dde;
+      border-radius: 2px; margin: 0 auto 16px;
+    }
+    .modal h3 { font-size: 1rem; font-weight: 700; color: var(--primary); margin-bottom: 14px; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label {
+      display: block; font-size: 0.78rem; font-weight: 600;
+      color: var(--text-light); margin-bottom: 4px;
+    }
+    .form-group input, .form-group textarea {
+      width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+      padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
+      color: var(--text); background: #fafcff;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--primary);
+    }
+    .form-group textarea { resize: none; height: 60px; }
+    /* 画像アップロードボタン */
+    .img-upload-btn {
+      display: flex; align-items: center; justify-content: center;
+      gap: 6px; width: 100%; padding: 11px;
+      border: 2px dashed var(--border); border-radius: 10px;
+      background: #f4f7ff; cursor: pointer; font-size: 0.88rem;
+      font-weight: 600; color: var(--primary); transition: border-color 0.15s;
+    }
+    .img-upload-btn:hover { border-color: var(--primary); background: #eef2ff; }
+    .img-upload-btn input { display: none; }
+
+    /* プレビュー */
+    .img-preview-wrap { margin-top: 8px; position: relative; }
+    .img-preview {
+      width: 100%; max-height: 140px; object-fit: cover;
+      border-radius: 10px; display: block;
+      border: 1.5px solid var(--border);
+    }
+    .img-preview.visible { display: block; }
+    .img-clear-btn {
+      position: absolute; top: 6px; right: 6px;
+      background: rgba(0,0,0,0.55); color: #fff;
+      border: none; border-radius: 20px; padding: 3px 10px;
+      font-size: 0.72rem; cursor: pointer; font-weight: 600;
+    }
+    .modal-btns { display: flex; gap: 10px; margin-top: 16px; }
+    .btn-primary, .btn-cancel {
+      flex: 1; padding: 12px; border: none; border-radius: 12px;
+      font-size: 0.9rem; font-weight: 700; cursor: pointer;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-cancel  { background: #eef2ff; color: var(--text-light); }
+
+    /* 拡大時の画質向上：ブラウザのぼかし補完を抑制 */
+    .leaflet-image-layer {
+      image-rendering: -webkit-optimize-contrast; /* Safari */
+      image-rendering: crisp-edges;               /* Firefox */
+      image-rendering: high-quality;              /* Chrome fallback */
+    }
+
+    /* Leaflet popup */
+    .leaflet-popup-content-wrapper { border-radius: 12px !important; }
+    .popup-content { font-family: 'Hiragino Sans','Meiryo',sans-serif; min-width: 160px; }
+    .popup-img { width: 100%; max-height: 90px; object-fit: cover; border-radius: 6px; margin-bottom: 5px; }
+    .popup-title { font-weight: 700; font-size: 0.88rem; }
+    .popup-price { font-size: 0.8rem; color: var(--accent); font-weight: 700; }
+    .popup-note  { font-size: 0.73rem; color: var(--text-light); margin-top: 2px; }
+    .popup-status {
+      display: inline-block; margin-top: 5px; padding: 2px 8px;
+      border-radius: 10px; font-size: 0.72rem; font-weight: 700;
+    }
+    .popup-status.eaten  { background: #e8f8ef; color: var(--eaten); }
+    .popup-status.uneaten{ background: #ffeef2; color: var(--uneaten); }
+
+    /* ── Sync button in header ───────────────────── */
+    .sync-btn {
+      background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+      color: #fff; border-radius: 20px; padding: 4px 12px;
+      font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .sync-btn:hover { background: rgba(255,255,255,0.32); }
+
+    /* ── Sync modal ──────────────────────────────── */
+    .sync-section {
+      background: #f4f7ff; border-radius: 12px; padding: 14px;
+      margin-bottom: 12px;
+    }
+    .sync-section h4 {
+      font-size: 0.8rem; font-weight: 700; color: var(--primary);
+      margin-bottom: 10px;
+    }
+    .sync-row { display: flex; flex-direction: column; gap: 8px; }
+    .sync-action-btn {
+      width: 100%; padding: 11px; border: 1.5px solid var(--border);
+      border-radius: 10px; background: #fff; font-size: 0.85rem;
+      font-weight: 600; cursor: pointer; color: var(--text);
+      text-align: left; display: flex; align-items: center; gap: 8px;
+      transition: border-color 0.15s;
+    }
+    .sync-action-btn:hover { border-color: var(--primary); }
+    .sync-action-btn.primary-action {
+      background: var(--primary); color: #fff; border-color: var(--primary);
+    }
+    .sync-action-btn input[type=file] { display: none; }
+
+    .qr-wrap {
+      text-align: center; padding: 10px 0 4px;
+      display: none;
+    }
+    .qr-wrap.visible { display: block; }
+    .qr-wrap img { width: 180px; height: 180px; border-radius: 8px; }
+    .qr-caption { font-size: 0.72rem; color: var(--text-light); margin-top: 6px; }
+
+    /* 同期コード */
+    .sync-code-box {
+      display: none; margin-top: 10px;
+      background: #0f1923; border-radius: 10px; padding: 10px;
+      position: relative;
+    }
+    .sync-code-box.visible { display: block; }
+    .sync-code-textarea {
+      width: 100%; height: 80px; background: transparent; border: none;
+      color: #7dd3fc; font-family: monospace; font-size: 0.62rem;
+      resize: none; line-height: 1.4; word-break: break-all;
+    }
+    .sync-code-textarea:focus { outline: none; }
+    .sync-code-copy {
+      position: absolute; top: 8px; right: 8px;
+      background: var(--primary); color: #fff; border: none;
+      border-radius: 8px; padding: 4px 10px; font-size: 0.68rem; cursor: pointer;
+    }
+    /* ブックマークレット */
+    .bookmarklet-drag-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, #f5a623, #e8910e);
+      color: #fff; font-weight: 700; font-size: 0.88rem;
+      padding: 12px 20px; border-radius: 14px;
+      text-decoration: none; cursor: grab;
+      box-shadow: 0 4px 14px rgba(245,166,35,0.4);
+      user-select: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .bookmarklet-drag-btn:active { transform: scale(0.97); }
+    .bookmarklet-steps {
+      background: #f0f7ff; border-radius: 10px; padding: 12px 14px;
+      margin: 10px 0; font-size: 0.78rem; color: var(--text);
+      line-height: 1.8;
+    }
+    .bookmarklet-steps li { padding-left: 4px; }
+    .bookmarklet-arrow {
+      font-size: 1.8rem; text-align: center; color: var(--accent);
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+    @keyframes bounce {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-6px); }
+    }
+
+    .sync-code-input {
+      width: 100%; padding: 8px 10px; border: 1.5px solid var(--border);
+      border-radius: 8px; font-family: monospace; font-size: 0.72rem;
+      margin-top: 8px; resize: none; height: 70px; word-break: break-all;
+    }
+    .sync-warning {
+      font-size: 0.68rem; color: #e67e22; margin-top: 6px; line-height: 1.4;
+    }
+
+    /* ── 閲覧モード（スマホ用）────────────────────── */
+    body.view-mode .edit-only { display: none !important; }
+    body.view-mode .btn-delete { display: none !important; }
+    body.view-mode .btn-pin-store { display: none !important; }
+    body.view-mode .food-card-note-wrap { pointer-events: none; }
+    body.view-mode .food-card-note-empty { display: none; }
+    .view-mode-banner {
+      display: none; background: #1a56b0; color: #fff;
+      text-align: center; padding: 5px 12px; font-size: 0.72rem;
+      flex-shrink: 0;
+    }
+    body.view-mode .view-mode-banner { display: block; }
+
+    .sync-divider {
+      text-align: center; font-size: 0.72rem; color: var(--text-light);
+      margin: 4px 0; position: relative;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: rgba(26,86,176,0.92); color: #fff;
+      padding: 8px 20px; border-radius: 20px; font-size: 0.82rem;
+      z-index: 3000; opacity: 0; transition: opacity 0.3s;
+      pointer-events: none; white-space: nowrap;
+    }
+    .toast.visible { opacity: 1; }
+
+    /* ── List Page ───────────────────────────────── */
+    .list-page {
+      position: fixed; inset: 0; z-index: 1500;
+      background: #f0f4ff;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.32s cubic-bezier(0.4,0,0.2,1);
+    }
+    .list-page.open { transform: translateX(0); }
+    .list-page-header {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+      color: #fff; padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px;
+      flex-shrink: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    .list-back-btn {
+      background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.5);
+      color: #fff; border-radius: 20px; padding: 5px 14px;
+      font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    }
+    .list-page-title { font-size: 0.95rem; font-weight: 700; flex: 1; text-align: center; }
+    .list-page-count { font-size: 0.72rem; opacity: 0.85; min-width: 40px; text-align: right; }
+    .list-subheader {
+      padding: 8px 12px; background: #f8faff;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .list-content { flex: 1; overflow-y: auto; padding: 8px; }
+    .list-content::-webkit-scrollbar { width: 4px; }
+    .list-content::-webkit-scrollbar-thumb { background: #c0ccee; border-radius: 3px; }
+
+    /* お気に入りボタン */
+    .btn-fav { background: #fff8e1; color: #d97706; }
+    .btn-fav.active { background: #fef08a; color: #b45309; }
+
+    /* フォーム内お気に入りトグル */
+    .fav-toggle {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 14px; background: #fffbeb;
+      border: 2px solid #fde68a; border-radius: 10px;
+      cursor: pointer; user-select: none; transition: all 0.15s;
+    }
+    .fav-toggle.on { background: #fef3c7; border-color: #f59e0b; }
+    .fav-icon { font-size: 1.2rem; transition: transform 0.2s; }
+    .fav-toggle.on .fav-icon { transform: scale(1.2); }
+    .fav-label-text { font-size: 0.85rem; font-weight: 600; }
+    .fav-label-sub  { font-size: 0.7rem; color: var(--text-light); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div>
+    <h1>🏰 ディズニー フードマップ</h1>
+    <div class="subtitle">地図をタップしてフードをピン留め</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="header-stats">
+      <button class="sync-btn" onclick="openListPage()" style="background:rgba(255,255,255,0.25);">🍽️ 一覧</button>
+      <div class="stat-badge"><span id="stat-total">0</span>合計</div>
+      <div class="stat-badge"><span id="stat-eaten">0</span>✅食べた</div>
+      <div class="stat-badge"><span id="stat-uneaten">0</span>🎯未食</div>
+    </div>
+    <button class="sync-btn" onclick="openSyncModal()">📲 同期</button>
+  </div>
+</header>
+
+<!-- Park Tabs -->
+<div class="park-tabs">
+  <div class="park-tab active" data-park="tdl" onclick="switchPark('tdl')">🏰 東京ディズニーランド</div>
+  <div class="park-tab" data-park="tds" onclick="switchPark('tds')">🌊 東京ディズニーシー</div>
+</div>
+
+<!-- 閲覧モードバナー -->
+<div class="view-mode-banner">
+  📱 スマホ閲覧モード｜⭐/✅ のみ操作できます
+  &nbsp;
+  <span onclick="exitViewMode()" style="text-decoration:underline;cursor:pointer;opacity:0.85;">編集モードに切替</span>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Map -->
+  <div class="map-wrapper">
+    <div id="map"></div>
+
+    <!-- Loading -->
+    <div class="map-overlay" id="state-loading">
+      <div class="loading-content">
+        <div class="spinner-ring"></div>
+        <p>マップを読み込み中...</p>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="map-overlay hidden" id="state-upload">
+      <div class="upload-content">
+        <div class="upload-icon">🗺️</div>
+        <h3>パークマップを読み込む</h3>
+        <p>公式サイトからPDFをダウンロードして<br>アップロードしてください</p>
+        <a id="park-dl-link"
+           href="https://www.tokyodisneyresort.jp/tdl/map.html"
+           class="download-link" target="_blank">📥 公式マップをダウンロード</a>
+        <label class="upload-btn-label">
+          <input type="file" id="map-file-input"
+                 accept=".pdf,.jpg,.jpeg,.png,.webp"
+                 onchange="handleMapUpload(event)" />
+          📂 ファイルを選択してアップロード
+        </label>
+        <p class="upload-hint">PDF・JPG・PNG に対応</p>
+      </div>
+    </div>
+
+    <!-- Ready controls -->
+    <div class="map-hint" id="map-hint">📍 地図をタップしてフードを追加</div>
+    <button class="btn-change-map" id="btn-change-map" onclick="showUploadState()">🔄 マップ変更</button>
+
+    <!-- 店舗位置設定モードバナー -->
+    <div class="store-pin-banner" id="store-pin-banner">
+      <span>📍</span>
+      <span class="store-pin-banner-name" id="store-pin-name"></span>
+      <span style="opacity:0.75;font-size:0.7rem;">の位置をタップ</span>
+      <button class="store-pin-cancel" onclick="cancelStorePinMode()">✕ キャンセル</button>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- ドラッグハンドル -->
+    <div class="split-handle" id="split-handle" onclick="onHandleTap()">
+      <div class="handle-bar"></div>
+      <div class="snap-dots">
+        <div class="snap-dot" id="dot-0"></div>
+        <div class="snap-dot active" id="dot-1"></div>
+        <div class="snap-dot" id="dot-2"></div>
+      </div>
+      <span class="handle-label" id="handle-label">▲ 上にドラッグでリストを広げる</span>
+    </div>
+
+    <div class="sidebar-header">
+      <div class="sidebar-top-row">
+        <h2 id="sidebar-title">🏰 TDL お気に入り</h2>
+        <span class="food-count" id="food-count"></span>
+      </div>
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="フード名・エリアで検索..."
+               oninput="onSearch()" />
+        <button class="search-clear" id="search-clear" onclick="clearSearch()">✕</button>
+      </div>
+      <div class="filter-row">
+        <button class="filter-btn active" id="filter-all"    onclick="setFilter('all')">すべて</button>
+        <button class="filter-btn f-eaten"   id="filter-eaten"  onclick="setFilter('eaten')">✅ 食べた</button>
+        <button class="filter-btn f-uneaten" id="filter-uneaten" onclick="setFilter('uneaten')">🎯 未食</button>
+      </div>
+    </div>
+    <div class="food-list" id="food-list"></div>
+  </div>
+</div>
+
+<!-- Food Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModalOnBg(event)">
+  <div class="modal">
+    <div class="modal-drag"></div>
+    <h3>🍽️ フードを追加</h3>
+    <div class="form-group">
+      <label>フード名 *</label>
+      <input type="text" id="f-name" placeholder="例：チュロス、ポップコーン..." />
+    </div>
+    <div class="form-group">
+      <label>値段（円）</label>
+      <input type="number" id="f-price" placeholder="例：500" />
+    </div>
+    <div class="form-group">
+      <label>エリア名</label>
+      <input type="text" id="f-area" placeholder="例：ファンタジーランド" />
+    </div>
+    <div class="form-group">
+      <label>店舗名</label>
+      <input type="text" id="f-store" placeholder="例：センターストリート・コーヒーハウス" />
+    </div>
+    <div class="form-group">
+      <div class="fav-toggle" id="fav-toggle" onclick="toggleFormFav()">
+        <span class="fav-icon" id="fav-form-icon">☆</span>
+        <div>
+          <div class="fav-label-text">お気に入りに追加</div>
+          <div class="fav-label-sub">TOPのリストに表示されます</div>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>📸 写真（任意）</label>
+      <!-- 写真アップロードボタン -->
+      <label class="img-upload-btn" id="img-upload-btn">
+        <input type="file" id="f-img-file" accept="image/*" onchange="handleImgFile(event)" />
+        <span id="img-upload-label">📷 写真を選択 / 撮影</span>
+      </label>
+      <!-- URLでも入力可 -->
+      <input type="url" id="f-img" placeholder="または画像URLを貼り付け"
+             oninput="previewImgUrl()" style="margin-top:6px;" />
+      <!-- プレビュー -->
+      <div class="img-preview-wrap" id="img-preview-wrap" style="display:none;">
+        <img id="img-preview" class="img-preview visible" alt="" />
+        <button class="img-clear-btn" onclick="clearImg()">✕ 写真を削除</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>メモ</label>
+      <textarea id="f-note" placeholder="例：季節限定！絶対食べたい"></textarea>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeModal()">キャンセル</button>
+      <button class="btn-primary" onclick="saveFood()">📍 ピンを追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sync Modal -->
+<div class="modal-overlay" id="sync-modal" onclick="closeSyncOnBg(event)">
+  <div class="modal">
+    <div class="modal-drag"></div>
+    <h3>📲 デバイス間でデータを同期</h3>
+
+    <!-- PC→スマホ送信（PC編集モードのみ） -->
+    <div class="sync-section edit-only">
+      <h4>📤 PCからスマホにデータを送る</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn primary-action" onclick="showSyncCode()">
+          🔑 同期コードを生成
+        </button>
+        <button class="sync-action-btn" onclick="copyViewModeLink()">
+          📱 スマホ用リンクをコピー
+        </button>
+        <button class="sync-action-btn" onclick="exportJSON()">
+          💾 JSONとして保存
+        </button>
+      </div>
+      <p class="sync-warning">①スマホ用リンクを先に開いて「閲覧モード」で起動。②QRコードを読み取るだけで自動更新されます。</p>
+      <!-- QR（メイン手段） -->
+      <div style="margin-top:8px;">
+        <button class="sync-action-btn primary-action" onclick="showSyncQR()">
+          📷 QRコードを表示（スマホで読み取り）
+        </button>
+      </div>
+      <div class="qr-wrap" id="qr-wrap">
+        <img id="qr-img" src="" alt="QRコード" />
+        <p class="qr-caption">スマホのカメラで読み取ると自動で更新されます</p>
+        <div id="qr-line-wrap" style="display:none;margin-top:6px;">
+          <p style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px;">データが多いためQRが使えません。LINEで共有してください：</p>
+          <button class="sync-action-btn" onclick="copyQRLink()" style="font-size:0.75rem;">
+            🔗 リンクをコピー
+          </button>
+        </div>
+      </div>
+      <!-- 同期コード（サブ手段） -->
+      <div style="margin-top:4px;">
+        <button class="sync-action-btn" onclick="showSyncCode()" style="font-size:0.7rem;opacity:0.8;">
+          🔑 同期コードを生成（QRが使えない場合）
+        </button>
+      </div>
+      <div class="sync-code-box" id="sync-code-box">
+        <textarea class="sync-code-textarea" id="sync-code-out" readonly></textarea>
+        <button class="sync-code-copy" onclick="copySyncCode()">コピー</button>
+      </div>
+    </div>
+
+    <!-- スマホ→PC返送（閲覧モード専用） -->
+    <div class="sync-section" id="viewmode-send-section" style="display:none;">
+      <h4>📤 ⭐の変更をPCに戻す</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn primary-action" onclick="showSyncCode()">
+          🔑 同期コードを生成してLINEで送る
+        </button>
+      </div>
+      <div class="sync-code-box" id="sync-code-box-view">
+        <textarea class="sync-code-textarea" id="sync-code-out-view" readonly></textarea>
+        <button class="sync-code-copy" onclick="copySyncCodeView()">コピー</button>
+      </div>
+      <p style="font-size:0.68rem;color:var(--text-light);margin-top:6px;">
+        コードをLINEで自分に送り、PCのアプリで「同期コードを貼り付けて取り込む」から反映してください。
+      </p>
+    </div>
+
+    <!-- PCでデータを受信（編集モードのみ） -->
+    <div class="sync-section edit-only">
+      <h4>📥 他のデバイスからデータを取り込む</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn primary-action" onclick="applySyncCodeFromInput()">
+          🔑 同期コードを貼り付けて取り込む
+        </button>
+        <label class="sync-action-btn">
+          <input type="file" accept=".json" onchange="importJSON(event)" />
+          📂 JSONファイルをインポート
+        </label>
+      </div>
+      <textarea class="sync-code-input" id="sync-code-in"
+        placeholder="同期コードをここに貼り付けてください"></textarea>
+    </div>
+
+    <!-- スマホでデータを受信（閲覧モード専用） -->
+    <div class="sync-section" id="viewmode-recv-section" style="display:none;">
+      <h4>📥 PCからデータを受け取る</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn primary-action" onclick="applySyncCodeFromInputView()">
+          🔑 PCの同期コードを貼り付け
+        </button>
+      </div>
+      <textarea class="sync-code-input" id="sync-code-in-view"
+        placeholder="PCで生成した同期コードを貼り付けてください"></textarea>
+    </div>
+
+    <!-- 公式サイトスクリプト -->
+    <div class="sync-section edit-only">
+      <h4>🔍 公式サイトからメニューを取得</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn primary-action" onclick="showBookmarkletModal()">
+          🔖 ブックマークレットを設定（推奨）
+        </button>
+        <button class="sync-action-btn" onclick="showScriptModal()">
+          📋 スクリプト（上級者向け）
+        </button>
+      </div>
+      <p style="font-size:0.7rem;color:var(--text-light);margin-top:6px;line-height:1.5;">
+        ブックマークレットを使うと、公式ページで<b>クリック1回</b>でアプリに自動取り込みできます
+      </p>
+    </div>
+
+    <!-- プリセット -->
+    <div class="sync-section edit-only">
+      <h4>🏰 プリセットデータ</h4>
+      <div class="sync-row">
+        <button class="sync-action-btn" onclick="confirmLoadPreset()">
+          🍽️ TDL・TDS のフード一覧を読み込む
+        </button>
+      </div>
+      <p style="font-size:0.7rem;color:var(--text-light);margin-top:6px;line-height:1.5;">
+        主要レストラン＆スナック約60件を一括追加します。<br>
+        ※ 2024年時点の情報。価格・メニューは変更される場合があります。
+      </p>
+    </div>
+
+    <p style="font-size:0.72rem;color:var(--text-light);text-align:center;margin-top:4px;">
+      ※ データは端末内に保存されます。同期は手動操作が必要です。
+    </p>
+    <div class="modal-btns" style="margin-top:14px;">
+      <button class="btn-cancel" onclick="closeSyncModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Script Modal ──────────────────────────────────── -->
+<div class="modal-overlay" id="script-modal" onclick="closeScriptOnBg(event)">
+  <div class="modal" style="max-height:92vh;">
+    <div class="modal-drag"></div>
+    <h3>📋 メニュー抽出スクリプト</h3>
+
+    <!-- タブ切り替え -->
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <button id="tab-single" onclick="switchScriptTab('single')"
+        style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--primary);
+               background:var(--primary);color:#fff;font-weight:700;font-size:0.78rem;cursor:pointer;">
+        📄 1店舗ずつ
+      </button>
+      <button id="tab-bulk" onclick="switchScriptTab('bulk')"
+        style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);
+               background:#fff;color:var(--text-light);font-weight:700;font-size:0.78rem;cursor:pointer;">
+        🗂️ 全店舗一括
+      </button>
+    </div>
+
+    <!-- 1店舗ずつ -->
+    <div id="tab-content-single">
+      <div style="background:#eef2ff;border-radius:10px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:0.8rem;font-weight:700;margin-bottom:8px;">🪜 使い方</div>
+        <ol style="font-size:0.75rem;color:var(--text-light);line-height:2;padding-left:1.4em;margin:0;">
+          <li>下の「コピー」ボタンを押す</li>
+          <li>公式の各<b>レストランページ</b>を開く</li>
+          <li><b>F12</b> →「コンソール」→ 貼り付けて <b>Enter</b></li>
+          <li>JSONダウンロード → アプリで「JSONインポート」</li>
+        </ol>
+      </div>
+      <div style="position:relative;">
+        <textarea id="script-textarea" readonly
+          style="width:100%;height:110px;font-family:monospace;font-size:0.65rem;
+                 border:1.5px solid var(--border);border-radius:10px;padding:10px;
+                 background:#0f1923;color:#7dd3fc;resize:none;line-height:1.5;"></textarea>
+        <button onclick="copyExtractScript()" id="copy-script-btn"
+          style="position:absolute;top:8px;right:8px;background:var(--primary);color:#fff;
+                 border:none;border-radius:8px;padding:4px 12px;font-size:0.75rem;
+                 font-weight:700;cursor:pointer;">📋 コピー</button>
+      </div>
+    </div>
+
+    <!-- 全店舗一括 -->
+    <div id="tab-content-bulk" style="display:none;">
+      <div style="background:#fff8e8;border-radius:10px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:0.8rem;font-weight:700;margin-bottom:8px;">🪜 使い方</div>
+        <ol style="font-size:0.75rem;color:var(--text-light);line-height:2;padding-left:1.4em;margin:0;">
+          <li>下の「コピー」ボタンを押す</li>
+          <li>公式の<b>レストラン一覧ページ</b>を開く<br>
+            <a href="https://www.tokyodisneyresort.jp/tdl/restaurant/list.html" target="_blank"
+               style="color:var(--primary);font-size:0.7rem;">TDL一覧 →</a>
+            &nbsp;
+            <a href="https://www.tokyodisneyresort.jp/tds/restaurant/list.html" target="_blank"
+               style="color:var(--primary);font-size:0.7rem;">TDS一覧 →</a>
+          </li>
+          <li><b>F12</b> →「コンソール」→ 貼り付けて <b>Enter</b></li>
+          <li>全店舗を自動巡回（1〜2分）後 JSON ダウンロード</li>
+          <li>アプリで「JSONインポート」</li>
+        </ol>
+      </div>
+      <div style="position:relative;">
+        <textarea id="script-textarea-bulk" readonly
+          style="width:100%;height:110px;font-family:monospace;font-size:0.65rem;
+                 border:1.5px solid var(--border);border-radius:10px;padding:10px;
+                 background:#0f1923;color:#7dd3fc;resize:none;line-height:1.5;"></textarea>
+        <button onclick="copyBulkScript()" id="copy-bulk-btn"
+          style="position:absolute;top:8px;right:8px;background:var(--accent);color:#fff;
+                 border:none;border-radius:8px;padding:4px 12px;font-size:0.75rem;
+                 font-weight:700;cursor:pointer;">📋 コピー</button>
+      </div>
+    </div>
+
+    <div class="modal-btns" style="margin-top:12px;">
+      <button class="btn-cancel" onclick="closeScriptModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Bookmarklet Modal ─────────────────────────────── -->
+<div class="modal-overlay" id="bookmarklet-modal" onclick="closeBookmarkletOnBg(event)">
+  <div class="modal" style="max-height:92vh;">
+    <div class="modal-drag"></div>
+    <h3>🔖 ブックマークレット設定</h3>
+
+    <div class="bookmarklet-steps">
+      <b>① URLをコピーする</b>
+      <div style="margin-top:8px;">
+        <button class="sync-action-btn primary-action" onclick="copyBookmarkletUrl()" style="width:100%;font-size:0.9rem;padding:12px;">
+          📋 ブックマークレットURLをコピー
+        </button>
+      </div>
+    </div>
+
+    <div class="bookmarklet-steps" style="margin-top:8px;">
+      <b>② ブックマークに登録する</b>
+      <div style="margin-top:8px;font-size:0.78rem;color:var(--text-light);line-height:2;">
+        <b>Chrome の場合：</b><br>
+        ブックマークバーを右クリック →「ページを追加」<br>
+        名前：<code style="background:#eee;padding:1px 5px;border-radius:4px;">ディズニーメニュー取得</code><br>
+        URL：<b>①でコピーしたもの</b>を貼り付け → 保存
+      </div>
+    </div>
+
+    <div style="background:#fff8e8;border-radius:10px;padding:10px 12px;margin-top:8px;">
+      <div style="font-size:0.78rem;font-weight:700;margin-bottom:6px;">📱 設定後の使い方</div>
+      <ol style="font-size:0.74rem;color:var(--text-light);line-height:2.2;padding-left:1.4em;margin:0;">
+        <li>ディズニー公式の<b>レストランページ</b>を開く</li>
+        <li>ブックマークの「ディズニーメニュー取得」をクリック</li>
+        <li>画面にポップアップが出るので「アプリで取り込む」をタップ ✅</li>
+      </ol>
+    </div>
+
+    <div class="modal-btns" style="margin-top:14px;">
+      <button class="btn-cancel" onclick="closeBookmarkletModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── List Page (フード一覧) ─────────────────────────── -->
+<div class="list-page" id="list-page">
+  <div class="list-page-header">
+    <button class="list-back-btn" onclick="lpBack()">← 戻る</button>
+    <div class="list-page-title">🍽️ フード一覧</div>
+    <span class="list-page-count" id="list-page-count"></span>
+  </div>
+  <div class="breadcrumb" id="list-breadcrumb"></div>
+  <div class="list-subheader">
+    <div class="search-bar" style="margin-bottom:0">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="list-search" placeholder="フード名・エリアで検索..."
+             oninput="onListSearch()" />
+      <button class="search-clear" id="list-search-clear" onclick="clearListSearch()">✕</button>
+    </div>
+  </div>
+  <div class="list-content" id="list-content"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── PDF.js setup ─────────────────────────────────────────────────────────
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// ─── Park config ──────────────────────────────────────────────────────────
+const PARKS = {
+  tdl: {
+    label: '🏰 TDL お気に入り',
+    pdfUrl: 'https://media2.tokyodisneyresort.jp/home/download/map/TDL_map.pdf',
+    dlUrl:  'https://www.tokyodisneyresort.jp/tdl/map.html'
+  },
+  tds: {
+    label: '🌊 TDS お気に入り',
+    pdfUrl: 'https://media2.tokyodisneyresort.jp/home/download/map/TDS_map.pdf',
+    dlUrl:  'https://www.tokyodisneyresort.jp/tds/map.html'
+  }
+};
+
+// ─── View Mode（スマホ閲覧モード）────────────────────────────────────────
+// URLに ?view=1 があるか、localStorage に保存済みなら閲覧モードで起動
+const VIEW_MODE = new URLSearchParams(location.search).get('view') === '1'
+  || localStorage.getItem('disney_view_mode') === '1';
+if (VIEW_MODE) {
+  localStorage.setItem('disney_view_mode', '1');
+  // URLから ?view=1 を消してクリーンに
+  if (new URLSearchParams(location.search).get('view')) {
+    history.replaceState(null, '', location.pathname);
+  }
+}
+
+// ─── State ────────────────────────────────────────────────────────────────
+let currentPark   = 'tdl';
+let currentFilter = 'all';
+let searchQuery   = '';
+let pendingLatLng  = null;
+let pendingStorePin = null; // { area, store } — 店舗位置設定モード
+let mapIsReady     = false;
+
+const mapCache = {}; // park → { dataUrl, w, h }
+let currentOverlay = null;
+
+// ─── IndexedDB: マップ画像の永続化（localStorageより大容量）────────────────
+const MAP_IDB_NAME  = 'disney_maps_v1';
+const MAP_IDB_STORE = 'maps';
+
+function openMapDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(MAP_IDB_NAME, 1);
+    req.onupgradeneeded = e => { e.target.result.createObjectStore(MAP_IDB_STORE); };
+    req.onsuccess  = e => resolve(e.target.result);
+    req.onerror    = e => reject(e.target.error);
+  });
+}
+async function saveMapToIDB(park, data) {
+  try {
+    const db = await openMapDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction(MAP_IDB_STORE, 'readwrite');
+      tx.objectStore(MAP_IDB_STORE).put(data, park);
+      tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+    });
+  } catch(e) { console.warn('IDB save failed:', e); }
+}
+async function loadMapFromIDB(park) {
+  try {
+    const db = await openMapDB();
+    return await new Promise((res, rej) => {
+      const tx  = db.transaction(MAP_IDB_STORE, 'readonly');
+      const req = tx.objectStore(MAP_IDB_STORE).get(park);
+      req.onsuccess = e => res(e.target.result || null);
+      req.onerror   = e => rej(e.target.error);
+    });
+  } catch(e) { return null; }
+}
+
+// Storage key v3 (CRS.Simple coordinates, incompatible with v2 geo coords)
+let foods = JSON.parse(localStorage.getItem('disney_foods_v3') || '[]');
+function save() { localStorage.setItem('disney_foods_v3', JSON.stringify(foods)); }
+
+// ─── Preset Food Data ─────────────────────────────────────────────────────
+// ※ 2024年時点の情報。価格・メニューは変更される場合があります。
+const PRESET_FOODS_RAW = [
+  // ── TDL ワールドバザール ──────────────────────────────────────────────
+  {park:'tdl',area:'ワールドバザール',store:'センターストリート・コーヒーハウス',name:'クラムチャウダー',price:'640',note:'パンボウル入りが人気の定番メニュー'},
+  {park:'tdl',area:'ワールドバザール',store:'センターストリート・コーヒーハウス',name:'ピザ',price:'720',note:''},
+  {park:'tdl',area:'ワールドバザール',store:'センターストリート・コーヒーハウス',name:'パスタ',price:'720',note:''},
+  {park:'tdl',area:'ワールドバザール',store:'イーストサイド・カフェ',name:'デザートプレート',price:'680',note:'季節のスイーツが楽しめる'},
+  {park:'tdl',area:'ワールドバザール',store:'グレートアメリカン・ワッフルカンパニー',name:'ワッフル',price:'500',note:'サクサクの定番スナック'},
+  {park:'tdl',area:'ワールドバザール',store:'チュロスワゴン',name:'チュロス',price:'400',note:'季節限定フレーバーも登場'},
+  // ── TDL アドベンチャーランド ─────────────────────────────────────────
+  {park:'tdl',area:'アドベンチャーランド',store:'ブルーバイユー・レストラン',name:'マットンバーグ（羊肉のシチュー）',price:'4200',note:'カリブの海賊を望む雰囲気抜群の人気レストラン・要予約'},
+  {park:'tdl',area:'アドベンチャーランド',store:'ブルーバイユー・レストラン',name:'モンテクリスト・サンドウィッチ',price:'3800',note:'フレンチトースト風サンドが名物'},
+  {park:'tdl',area:'アドベンチャーランド',store:'スキッパーズ・ギャレー',name:'ジャングルチキン',price:'660',note:'スパイシーなテイクアウトメニュー'},
+  {park:'tdl',area:'アドベンチャーランド',store:'ポリネシアンテラス・レストラン',name:'チキンプレート',price:'1500',note:''},
+  {park:'tdl',area:'アドベンチャーランド',store:'ポリネシアンテラス・レストラン',name:'パスタ',price:'1400',note:''},
+  // ── TDL ウエスタンランド ─────────────────────────────────────────────
+  {park:'tdl',area:'ウエスタンランド',store:'プラザパビリオン・レストラン',name:'ハンバーガー',price:'1100',note:''},
+  {park:'tdl',area:'ウエスタンランド',store:'ハングリーベア・レストラン',name:'スモークチキン',price:'660',note:'スモーキーな香りが特徴のテイクアウト'},
+  {park:'tdl',area:'ウエスタンランド',store:'ターキーレッグワゴン',name:'スモークターキーレッグ',price:'800',note:'大迫力！食べ歩きの定番'},
+  {park:'tdl',area:'ウエスタンランド',store:'ポップコーンワゴン',name:'ポップコーン（カレー味）',price:'400',note:'TDL名物フレーバー'},
+  // ── TDL クリッターカントリー ─────────────────────────────────────────
+  {park:'tdl',area:'クリッターカントリー',store:'グランマ・サラのキッチン',name:'クリームシチュー',price:'1400',note:'温かみのあるホームスタイル料理'},
+  {park:'tdl',area:'クリッターカントリー',store:'グランマ・サラのキッチン',name:'コーンブレッド',price:'400',note:''},
+  // ── TDL ファンタジーランド ───────────────────────────────────────────
+  {park:'tdl',area:'ファンタジーランド',store:'クイーン・オブ・ハートのバンケットホール',name:'カレーライス',price:'1200',note:''},
+  {park:'tdl',area:'ファンタジーランド',store:'クイーン・オブ・ハートのバンケットホール',name:'パスタ',price:'1200',note:''},
+  {park:'tdl',area:'ファンタジーランド',store:'ピノキオ・ビレッジキッチン',name:'ピザ',price:'1100',note:''},
+  {park:'tdl',area:'ファンタジーランド',store:'ピノキオ・ビレッジキッチン',name:'パスタ',price:'1100',note:''},
+  // ── TDL トゥモローランド ─────────────────────────────────────────────
+  {park:'tdl',area:'トゥモローランド',store:'パン・ギャラクティック・ピザポート',name:'ピザ',price:'1100',note:'宇宙をテーマにした人気レストラン'},
+  {park:'tdl',area:'トゥモローランド',store:'パン・ギャラクティック・ピザポート',name:'クラムチャウダー',price:'640',note:''},
+  {park:'tdl',area:'トゥモローランド',store:'トゥモローランド・テラス',name:'チキンバーガー',price:'900',note:''},
+  {park:'tdl',area:'トゥモローランド',store:'ポップコーンワゴン',name:'ポップコーン（塩バター）',price:'400',note:''},
+  // ── TDS メディテレーニアンハーバー ───────────────────────────────────
+  {park:'tds',area:'メディテレーニアンハーバー',store:'マゼランズ',name:'コースランチ',price:'4000',note:'TDS最高峰レストラン・要予約・特別な日に'},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'マゼランズ',name:'コースディナー',price:'5500',note:'要予約'},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'ホライズンベイ・レストラン',name:'ハンバーガーセット',price:'1400',note:'ハーバーを眺めながら食事できる'},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'ホライズンベイ・レストラン',name:'パスタ',price:'1300',note:''},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'カフェ・ポルトフィーノ',name:'パスタ',price:'1400',note:''},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'カフェ・ポルトフィーノ',name:'リゾット',price:'1400',note:''},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'リストランテ・ディ・カナレット',name:'ランチコース',price:'3500',note:'本格イタリアン'},
+  {park:'tds',area:'メディテレーニアンハーバー',store:'チュロスワゴン',name:'チュロス',price:'400',note:''},
+  // ── TDS アメリカンウォーターフロント ─────────────────────────────────
+  {park:'tds',area:'アメリカンウォーターフロント',store:'S.S.コロンビア・ダイニングルーム',name:'ビーフシチュー',price:'2200',note:'豪華客船をイメージした優雅なレストラン'},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'S.S.コロンビア・ダイニングルーム',name:'サーモンソテー',price:'2200',note:''},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'ドックサイドダイナー',name:'クラムチャウダーブレッドボウル',price:'660',note:'TDS必食グルメ！パンに入ったチャウダー'},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'ドックサイドダイナー',name:'ホットドッグ',price:'600',note:''},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'ニューヨーク・デリ',name:'パストラミサンドウィッチ',price:'900',note:'本格NYスタイル'},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'ニューヨーク・デリ',name:'ピザ',price:'700',note:''},
+  {park:'tds',area:'アメリカンウォーターフロント',store:'ポップコーンワゴン',name:'ポップコーン（キャラメル）',price:'400',note:'TDS定番フレーバー'},
+  // ── TDS ポートディスカバリー ──────────────────────────────────────────
+  {park:'tds',area:'ポートディスカバリー',store:'セバスチャンのカリプソキッチン',name:'ジャンバラヤ',price:'720',note:'スパイシーなカリブ料理'},
+  {park:'tds',area:'ポートディスカバリー',store:'セバスチャンのカリプソキッチン',name:'ガンボ',price:'680',note:''},
+  {park:'tds',area:'ポートディスカバリー',store:'セバスチャンのカリプソキッチン',name:'フライドシュリンプ',price:'700',note:''},
+  // ── TDS ロストリバーデルタ ────────────────────────────────────────────
+  {park:'tds',area:'ロストリバーデルタ',store:'ミゲルズ・エルドラド・キャンティーナ',name:'タコス',price:'720',note:'本格メキシカン料理'},
+  {park:'tds',area:'ロストリバーデルタ',store:'ミゲルズ・エルドラド・キャンティーナ',name:'ブリトー',price:'720',note:''},
+  {park:'tds',area:'ロストリバーデルタ',store:'ユカタン・ベースキャンプ・グリル',name:'スモークチキン',price:'720',note:'炭火焼きの香ばしさが絶品'},
+  {park:'tds',area:'ロストリバーデルタ',store:'ユカタン・ベースキャンプ・グリル',name:'スモークリブ',price:'780',note:''},
+  // ── TDS アラビアンコースト ────────────────────────────────────────────
+  {park:'tds',area:'アラビアンコースト',store:'カスバ・フードコート',name:'シーフードカレー',price:'1200',note:''},
+  {park:'tds',area:'アラビアンコースト',store:'カスバ・フードコート',name:'チキングリル',price:'1200',note:''},
+  {park:'tds',area:'アラビアンコースト',store:'サルタンズ・オアシス',name:'エビチリまん',price:'530',note:'TDS人気No.1スナック！'},
+  {park:'tds',area:'アラビアンコースト',store:'ポップコーンワゴン',name:'ポップコーン（ブラックペッパー）',price:'400',note:''},
+  // ── TDS ミステリアスアイランド ───────────────────────────────────────
+  {park:'tds',area:'ミステリアスアイランド',store:'ヴォルケイニア・レストラン',name:'カレーライス',price:'1200',note:'ジュール・ベルヌ風の内装が見事'},
+  {park:'tds',area:'ミステリアスアイランド',store:'ヴォルケイニア・レストラン',name:'ハンバーグカレー',price:'1400',note:''},
+  // ── TDS マーメイドラグーン ────────────────────────────────────────────
+  {park:'tds',area:'マーメイドラグーン',store:'キッチン・フグ',name:'スナック各種',price:'400',note:'マーメイドラグーンのフードスポット'},
+  // ── TDS ファンタジースプリングス（2024年6月開業）──────────────────────
+  {park:'tds',area:'ファンタジースプリングス',store:'ルックアウト・クックアウト',name:'フィッシュ＆チップス',price:'800',note:'ピーターパンエリアの屋外レストラン'},
+  {park:'tds',area:'ファンタジースプリングス',store:'エルサのエレメンツ',name:'アイスドリンク',price:'600',note:'アナと雪の女王エリアのスナックスポット'},
+  {park:'tds',area:'ファンタジースプリングス',store:'ラプンツェルのランタンフェスティバル周辺',name:'スナック',price:'500',note:'ラプンツェルエリア'},
+];
+
+const PRESET_FOODS = PRESET_FOODS_RAW.map((f, i) => ({
+  id: `preset_${f.park}_${String(i).padStart(3, '0')}`,
+  lat: null, lng: null, img: '', eaten: false, favorite: false, ...f
+}));
+
+function loadPresetFoods() {
+  const existingIds = new Set(foods.map(f => f.id));
+  const newItems = PRESET_FOODS.filter(f => !existingIds.has(f.id));
+  if (!newItems.length) return 0;
+  foods = [...foods, ...newItems];
+  save();
+  return newItems.length;
+}
+
+function confirmLoadPreset() {
+  const toAdd = PRESET_FOODS.filter(f => !foods.some(e => e.id === f.id)).length;
+  if (toAdd === 0) { showToast('プリセットはすでにすべて読み込まれています'); return; }
+  const ok = confirm(`TDL・TDS のプリセットデータ（${toAdd}件）を追加しますか？\n\n※ 地図ピンはありません。一覧で確認し、食べたいものを⭐に追加してください。\n※ 価格・メニューは2024年時点の情報です。`);
+  if (!ok) return;
+  const n = loadPresetFoods();
+  closeSyncModal();
+  renderFavorites(); updateStats();
+  showToast(`✅ ${n}件のプリセットを追加しました`);
+}
+
+// ─── Store Coordinates (relative: rx=0 left→1 right, ry=0 top→1 bottom) ──
+// CRS.Simple 変換: lat = -ry*h, lng = rx*w
+// 東京ディズニーリゾート公式マップPDFに基づく近似座標
+const STORE_COORDS = {
+  tdl: {
+    // ── ワールドバザール (入口〜お城の間、中央下) ──
+    'センターストリート・コーヒーハウス': { rx: 0.48, ry: 0.76 },
+    'イーストサイド・カフェ':             { rx: 0.53, ry: 0.74 },
+    'グレートアメリカン・ワッフルカンパニー': { rx: 0.46, ry: 0.80 },
+    // ── アドベンチャーランド (左エリア) ──
+    'ブルーバイユー・レストラン':          { rx: 0.22, ry: 0.62 },
+    'スキッパーズ・ギャレー':              { rx: 0.18, ry: 0.60 },
+    'ポリネシアンテラス・レストラン':      { rx: 0.26, ry: 0.65 },
+    // ── ウエスタンランド (左上エリア) ──
+    'プラザパビリオン・レストラン':        { rx: 0.33, ry: 0.52 },
+    'ハングリーベア・レストラン':          { rx: 0.20, ry: 0.45 },
+    'ターキーレッグワゴン':                { rx: 0.26, ry: 0.42 },
+    'ラッキーナゲット・カフェ':            { rx: 0.28, ry: 0.48 },
+    // ── クリッターカントリー (左上端) ──
+    'グランマ・サラのキッチン':            { rx: 0.17, ry: 0.36 },
+    // ── ファンタジーランド (上中央) ──
+    'クイーン・オブ・ハートのバンケットホール': { rx: 0.40, ry: 0.28 },
+    'ピノキオ・ビレッジキッチン':          { rx: 0.48, ry: 0.24 },
+    'ガストンズタバーン':                  { rx: 0.44, ry: 0.22 },
+    // ── トゥーンタウン (右上) ──
+    'ヒューイ・デューイ・ルーイのグッドタイム・カフェ': { rx: 0.67, ry: 0.24 },
+    'トゥーンタウン・プロップショップ':    { rx: 0.64, ry: 0.28 },
+    // ── トゥモローランド (右エリア) ──
+    'パン・ギャラクティック・ピザポート':  { rx: 0.76, ry: 0.52 },
+    'トゥモローランド・テラス':            { rx: 0.72, ry: 0.58 },
+  },
+  tds: {
+    // ── メディテレーニアンハーバー (中央下、入口) ──
+    'マゼランズ':                          { rx: 0.46, ry: 0.68 },
+    'ホライズンベイ・レストラン':          { rx: 0.54, ry: 0.73 },
+    'カフェ・ポルトフィーノ':              { rx: 0.42, ry: 0.72 },
+    'リストランテ・ディ・カナレット':      { rx: 0.58, ry: 0.68 },
+    'ミゲルズ・エル・ドラド・キャンティーナ': { rx: 0.50, ry: 0.75 },
+    // ── アメリカンウォーターフロント (右エリア) ──
+    'S.S.コロンビア・ダイニングルーム':    { rx: 0.76, ry: 0.50 },
+    'ドックサイドダイナー':                { rx: 0.68, ry: 0.62 },
+    'ニューヨーク・デリ':                  { rx: 0.64, ry: 0.55 },
+    // ── ポートディスカバリー (右端) ──
+    'セバスチャンのカリプソキッチン':      { rx: 0.82, ry: 0.40 },
+    // ── ロストリバーデルタ (右上) ──
+    'ミゲルズ・エルドラド・キャンティーナ': { rx: 0.70, ry: 0.28 },
+    'ユカタン・ベースキャンプ・グリル':    { rx: 0.65, ry: 0.32 },
+    // ── アラビアンコースト (上中央) ──
+    'カスバ・フードコート':                { rx: 0.50, ry: 0.30 },
+    'サルタンズ・オアシス':                { rx: 0.46, ry: 0.33 },
+    'アブーズベイカリー':                  { rx: 0.52, ry: 0.27 },
+    // ── ミステリアスアイランド (中央、島エリア) ──
+    'ヴォルケイニア・レストラン':          { rx: 0.38, ry: 0.60 },
+    // ── マーメイドラグーン (左エリア) ──
+    'キッチン・フグ':                      { rx: 0.30, ry: 0.50 },
+    // ── ファンタジースプリングス (左上・新エリア) ──
+    'ルックアウト・クックアウト':          { rx: 0.22, ry: 0.30 },
+    'エルサのエレメンツ':                  { rx: 0.17, ry: 0.38 },
+    'ラプンツェルのランタンフェスティバル周辺': { rx: 0.26, ry: 0.26 },
+  }
+};
+
+/**
+ * 店舗名から座標を取得し、food.lat/lng に設定する。
+ * mapCache[park] がなければ false を返す。
+ */
+function assignStoreCoords(food) {
+  if (food.lat != null) return false; // すでに座標あり
+  const rel = STORE_COORDS[food.park]?.[food.store];
+  if (!rel) return false;
+  const mc = mapCache[food.park];
+  if (!mc) return false; // マップ未読み込み
+  food.lat = -rel.ry * mc.h;
+  food.lng =  rel.rx * mc.w;
+  return true;
+}
+
+/**
+ * 指定パークの全お気に入りに座標を自動付与（マップ読み込み後に呼ぶ）
+ */
+function autoAssignCoordsForPark(park) {
+  let changed = false;
+  foods.forEach(f => {
+    if (f.park === park && f.favorite && f.lat == null) {
+      if (assignStoreCoords(f)) changed = true;
+    }
+  });
+  if (changed) { save(); renderAllMarkers(); }
+}
+
+// ─── Leaflet with CRS.Simple ──────────────────────────────────────────────
+const map = L.map('map', {
+  crs: L.CRS.Simple, minZoom: -3, maxZoom: 2, zoomSnap: 0.25
+});
+
+map.on('click', e => {
+  if (!mapIsReady) { showToast('先にマップを読み込んでください'); return; }
+
+  // ── 店舗位置設定モード ──
+  if (pendingStorePin) {
+    const { area, store } = pendingStorePin;
+    const { lat, lng } = e.latlng;
+    let count = 0;
+    foods.forEach(f => {
+      if (f.park === currentPark &&
+          (f.area  || '（エリア未設定）') === area &&
+          (f.store || '（店舗未設定）')   === store) {
+        f.lat = lat; f.lng = lng; count++;
+      }
+    });
+    save();
+    cancelStorePinMode();
+    renderAllMarkers();
+    renderFavorites();
+    showToast(`📍 ${store} の位置を設定しました（${count}品）`);
+    return;
+  }
+
+  // ── 通常モード: 新規フード追加 ──
+  pendingLatLng = e.latlng;
+  clearForm();
+  openModal();
+});
+
+const markers = {};
+
+// ─── Map state display ────────────────────────────────────────────────────
+function showLoadingState() {
+  document.getElementById('state-loading').classList.remove('hidden');
+  document.getElementById('state-upload').classList.add('hidden');
+  document.getElementById('map-hint').classList.remove('visible');
+  document.getElementById('btn-change-map').classList.remove('visible');
+  mapIsReady = false;
+}
+function showUploadState() {
+  document.getElementById('state-loading').classList.add('hidden');
+  document.getElementById('state-upload').classList.remove('hidden');
+  document.getElementById('map-hint').classList.remove('visible');
+  document.getElementById('btn-change-map').classList.remove('visible');
+  document.getElementById('park-dl-link').href = PARKS[currentPark].dlUrl;
+  mapIsReady = false;
+}
+function showReadyState() {
+  document.getElementById('state-loading').classList.add('hidden');
+  document.getElementById('state-upload').classList.add('hidden');
+  document.getElementById('map-hint').classList.add('visible');
+  document.getElementById('btn-change-map').classList.add('visible');
+  mapIsReady = true;
+}
+
+// ─── Apply map image to Leaflet ───────────────────────────────────────────
+function applyMapImage(park, { dataUrl, w, h }) {
+  mapCache[park] = { dataUrl, w, h };
+  // IndexedDB に保存（大容量・永続）
+  saveMapToIDB(park, { dataUrl, w, h });
+  // localStorage にも保存を試みる（小さい画像の場合のみ成功）
+  try { localStorage.setItem(`disney_map_hq_${park}`, JSON.stringify({ dataUrl, w, h })); }
+  catch(e) { /* quota exceeded – IDB に保存済みなので問題なし */ }
+
+  if (park !== currentPark) return; // park switched mid-load
+
+  if (currentOverlay) { map.removeLayer(currentOverlay); currentOverlay = null; }
+
+  // CRS.Simple: lat increases upward → image bounds: [[-h,0],[0,w]]
+  const bounds = [[-h, 0], [0, w]];
+  currentOverlay = L.imageOverlay(dataUrl, bounds).addTo(map);
+  map.fitBounds(bounds, { animate: false, padding: [4, 4] });
+
+  autoAssignCoordsForPark(park); // 座標未設定のお気に入りに自動付与
+  renderAllMarkers();
+  showReadyState();
+  setTimeout(() => map.invalidateSize(), 80);
+}
+
+// ─── Load map: cache → localStorage → IDB → PDF URL → upload prompt ───────
+async function loadParkMap(park) {
+  // 1. Memory cache（即時）
+  if (mapCache[park]) { applyMapImage(park, mapCache[park]); return; }
+
+  // 2. localStorage cache（同期・小さいデータ向け）
+  try {
+    const raw = localStorage.getItem(`disney_map_hq_${park}`);
+    if (raw) { applyMapImage(park, JSON.parse(raw)); return; }
+  } catch(e) {}
+
+  // 3. IndexedDB cache（非同期・大容量・次回以降の起動はここで復元）
+  showLoadingState();
+  const idbData = await loadMapFromIDB(park);
+  if (idbData) {
+    applyMapImage(park, idbData);
+    return;
+  }
+
+  // 4. Try Disney's public URL via PDF.js（初回・自動取得を試みる）
+  try {
+    if (typeof pdfjsLib === 'undefined') throw new Error('no pdfjs');
+    const pdf  = await pdfjsLib.getDocument({ url: PARKS[park].pdfUrl }).promise;
+    const page = await pdf.getPage(1);
+    const vp   = page.getViewport({ scale: 3.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = vp.width; canvas.height = vp.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    applyMapImage(park, {
+      dataUrl: canvas.toDataURL('image/jpeg', 0.92),
+      w: vp.width, h: vp.height
+    });
+  } catch(err) {
+    console.warn('Auto-load failed:', err.message);
+    // 5. 手動アップロードを案内
+    showUploadState();
+  }
+}
+
+// ─── Handle file upload (PDF or image) ───────────────────────────────────
+async function handleMapUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  showLoadingState();
+  try {
+    let dataUrl, w, h;
+    if (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
+      if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js未読み込み');
+      const buf  = await file.arrayBuffer();
+      const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
+      const page = await pdf.getPage(1);
+      const vp   = page.getViewport({ scale: 3.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      w = vp.width; h = vp.height;
+    } else {
+      dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i); i.onerror = rej; i.src = dataUrl;
+      });
+      w = img.naturalWidth; h = img.naturalHeight;
+    }
+    applyMapImage(currentPark, { dataUrl, w, h });
+    showToast('✅ マップを読み込みました');
+  } catch(err) {
+    console.error(err);
+    showToast('⚠️ 読み込みに失敗しました');
+    showUploadState();
+  }
+  e.target.value = '';
+}
+
+// ─── Markers ──────────────────────────────────────────────────────────────
+function createIcon(eaten) {
+  const c = eaten ? '#27ae60' : '#e74c3c';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z"
+      fill="${c}" stroke="white" stroke-width="2.5"/>
+    <circle cx="14" cy="14" r="6" fill="white"/>
+    <text x="14" y="18.5" font-size="9" text-anchor="middle" fill="${c}">${eaten?'✓':'!'}</text>
+  </svg>`;
+  return L.divIcon({
+    html: svg, iconSize:[28,36], iconAnchor:[14,36],
+    popupAnchor:[0,-38], className:''
+  });
+}
+
+function buildPopup(food) {
+  return `<div class="popup-content">
+    ${food.img ? `<img class="popup-img" src="${esc(food.img)}" onerror="this.style.display='none'">` : ''}
+    <div class="popup-title">${esc(food.name)}</div>
+    ${food.price ? `<div class="popup-price">¥${Number(food.price).toLocaleString()}</div>` : ''}
+    ${food.area  ? `<div class="popup-note">📍 ${esc(food.area)}</div>` : ''}
+    ${food.note  ? `<div class="popup-note">${esc(food.note)}</div>` : ''}
+    <div class="popup-status ${food.eaten?'eaten':'uneaten'}">${food.eaten?'✅ 食べた':'🎯 まだ'}</div>
+  </div>`;
+}
+
+function renderMarker(food) {
+  if (markers[food.id]) { map.removeLayer(markers[food.id]); delete markers[food.id]; }
+  if (food.park !== currentPark) return;
+  if (food.lat == null) return;
+  if (!food.favorite) return; // お気に入りのみピン表示
+  const m = L.marker([food.lat, food.lng], { icon: createIcon(food.eaten) }).addTo(map);
+  m.bindPopup(buildPopup(food));
+  markers[food.id] = m;
+}
+
+function renderAllMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  Object.keys(markers).forEach(k => delete markers[k]);
+  foods.filter(f => f.park === currentPark).forEach(renderMarker);
+}
+
+// ─── Park switch ──────────────────────────────────────────────────────────
+function switchPark(park) {
+  currentPark = park;
+  document.querySelectorAll('.park-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.park === park));
+  document.getElementById('sidebar-title').textContent = PARKS[park].label;
+  if (currentOverlay) { map.removeLayer(currentOverlay); currentOverlay = null; }
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  Object.keys(markers).forEach(k => delete markers[k]);
+  loadParkMap(park);
+  renderFavorites();
+}
+
+// ─── List Page Navigation ─────────────────────────────────────────────────
+let lpMode  = 'areas'; // 'areas' | 'stores' | 'foods'
+let lpArea  = null;
+let lpStore = null;
+let lpSearchQuery = '';
+let formFav = false;
+
+function openListPage() {
+  lpMode  = 'areas'; lpArea = null; lpStore = null; lpSearchQuery = '';
+  const si = document.getElementById('list-search');
+  if (si) si.value = '';
+  document.getElementById('list-search-clear').classList.remove('visible');
+  document.getElementById('list-page').classList.add('open');
+  renderListPage();
+}
+
+function closeListPage() {
+  document.getElementById('list-page').classList.remove('open');
+}
+
+function lpBack() {
+  if      (lpMode === 'stores') { lpMode = 'areas';  lpArea  = null; }
+  else if (lpMode === 'foods')  { lpMode = 'stores'; lpStore = null; }
+  else                          { closeListPage(); return; }
+  renderListPage();
+}
+
+function lpDrillToStores(area) {
+  lpMode = 'stores'; lpArea = area; lpStore = null;
+  renderListPage();
+}
+
+function lpDrillToFoods(area, store) {
+  lpMode = 'foods'; lpArea = area; lpStore = store;
+  renderListPage();
+}
+
+function renderListPage() {
+  updateListBreadcrumb();
+  if      (lpMode === 'areas')  renderListAreas();
+  else if (lpMode === 'stores') renderListStores();
+  else                          renderListFoods();
+}
+
+function updateListBreadcrumb() {
+  const bc = document.getElementById('list-breadcrumb');
+  if (lpMode === 'areas') { bc.classList.remove('visible'); return; }
+  bc.classList.add('visible');
+  let html = '';
+  if (lpMode === 'stores') {
+    html = `<span class="bc-item" onclick="openListPage()">エリア一覧</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-current">${esc(lpArea)}</span>`;
+  } else if (lpMode === 'foods') {
+    html = `<span class="bc-item" onclick="openListPage()">エリア一覧</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-item" onclick="lpDrillToStores(${esc(JSON.stringify(lpArea))})">${esc(lpArea)}</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-current">${esc(lpStore)}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function onListSearch() {
+  lpSearchQuery = document.getElementById('list-search').value;
+  document.getElementById('list-search-clear').classList.toggle('visible', lpSearchQuery.length > 0);
+  renderListPage();
+}
+
+function clearListSearch() {
+  document.getElementById('list-search').value = '';
+  lpSearchQuery = '';
+  document.getElementById('list-search-clear').classList.remove('visible');
+  renderListPage();
+}
+
+function deleteArea(area) {
+  const count = foods.filter(f => f.park === currentPark && (f.area || '（エリア未設定）') === area).length;
+  if (!confirm(`「${area}」のフード ${count}件をすべて削除しますか？`)) return;
+  const toRemove = foods.filter(f => f.park === currentPark && (f.area || '（エリア未設定）') === area);
+  toRemove.forEach(f => { if (markers[f.id]) { map.removeLayer(markers[f.id]); delete markers[f.id]; } });
+  foods = foods.filter(f => !(f.park === currentPark && (f.area || '（エリア未設定）') === area));
+  save(); renderFavorites(); updateStats(); renderListAreas();
+  showToast(`🗑 ${count}件を削除しました`);
+}
+
+function renderListAreas() {
+  const el = document.getElementById('list-content');
+  let parkFoods = foods.filter(f => f.park === currentPark);
+  // 検索時はフラット表示
+  if (lpSearchQuery) {
+    const q = lpSearchQuery.toLowerCase();
+    parkFoods = parkFoods.filter(f =>
+      f.name.toLowerCase().includes(q) ||
+      (f.area  && f.area.toLowerCase().includes(q))  ||
+      (f.store && f.store.toLowerCase().includes(q)) ||
+      (f.note  && f.note.toLowerCase().includes(q))
+    );
+    renderListFlat(el, parkFoods);
+    return;
+  }
+  if (!parkFoods.length) {
+    el.innerHTML = `<div class="empty-state"><div class="big">🗺️</div>フードがまだ登録されていません<br><small>地図をタップして追加してください</small></div>`;
+    document.getElementById('list-page-count').textContent = '';
+    return;
+  }
+  // エリアでグループ化
+  const areaMap = {};
+  parkFoods.forEach(f => {
+    const a = f.area || '（エリア未設定）';
+    if (!areaMap[a]) areaMap[a] = [];
+    areaMap[a].push(f);
+  });
+  document.getElementById('list-page-count').textContent = `${parkFoods.length}件`;
+  el.innerHTML = Object.entries(areaMap)
+    .sort(([a],[b]) => a.localeCompare(b, 'ja'))
+    .map(([area, items]) => {
+      const eaten = items.filter(f => f.eaten).length;
+      const pct   = items.length ? Math.round(eaten / items.length * 100) : 0;
+      const favCnt = items.filter(f => f.favorite).length;
+      return `<div class="hierarchy-card" onclick="lpDrillToStores(${esc(JSON.stringify(area))})">
+        <div class="hierarchy-card-icon">🏞️</div>
+        <div class="hierarchy-card-body">
+          <div class="hierarchy-card-name">${esc(area)}</div>
+          <div class="hierarchy-card-sub">${items.length}品・食べた ${eaten}品${favCnt ? `・⭐${favCnt}` : ''}</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        </div>
+        <button class="icon-btn btn-delete" style="flex-shrink:0;"
+          onclick="event.stopPropagation();deleteArea(${esc(JSON.stringify(area))})">🗑</button>
+      </div>`;
+    }).join('');
+}
+
+function renderListStores() {
+  const el = document.getElementById('list-content');
+  const areaFoods = foods.filter(f =>
+    f.park === currentPark && (f.area || '（エリア未設定）') === lpArea
+  );
+  const storeMap = {};
+  areaFoods.forEach(f => {
+    const s = f.store || '（店舗未設定）';
+    if (!storeMap[s]) storeMap[s] = [];
+    storeMap[s].push(f);
+  });
+  document.getElementById('list-page-count').textContent = `${areaFoods.length}件`;
+  el.innerHTML = Object.entries(storeMap)
+    .sort(([a],[b]) => a.localeCompare(b, 'ja'))
+    .map(([store, items]) => {
+      const eaten = items.filter(f => f.eaten).length;
+      const pct   = items.length ? Math.round(eaten / items.length * 100) : 0;
+      const thumbs = items.filter(f => f.img).slice(0, 4)
+        .map(f => `<img class="thumb-mini" src="${esc(f.img)}" onerror="this.style.display='none'">`).join('');
+      const hasPin = items.some(f => f.lat != null);
+      const pinClass = hasPin ? 'has-pin' : '';
+      const pinTitle = hasPin ? '位置設定済み（タップで変更）' : '地図上の位置を設定';
+      const commonNote = items.length && items.every(f => f.note === items[0].note) ? items[0].note : '';
+      const noteLabel = commonNote ? `🏷 ${commonNote}` : '🏷 フレーバー';
+      const noteStyle = commonNote ? 'color:#1a56b0;background:#e8f0ff;' : 'color:#aab;';
+      return `<div class="hierarchy-card" onclick="lpDrillToFoods(${esc(JSON.stringify(lpArea))}, ${esc(JSON.stringify(store))})">
+        <div class="hierarchy-card-icon">🏪</div>
+        <div class="hierarchy-card-body">
+          <div class="hierarchy-card-name">${esc(store)}</div>
+          <div class="hierarchy-card-sub">${items.length}品・食べた ${eaten}品${hasPin ? ' · 📍' : ''}</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+          ${thumbs ? `<div class="thumb-row">${thumbs}</div>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+          <button style="border:1.5px solid var(--border);border-radius:8px;padding:3px 7px;font-size:0.68rem;cursor:pointer;white-space:nowrap;${noteStyle}"
+            title="この店舗全品のフレーバー・メモを一括設定"
+            onclick="event.stopPropagation();setStoreFlavor(${esc(JSON.stringify(lpArea))}, ${esc(JSON.stringify(store))})">${noteLabel}</button>
+          <button class="btn-pin-store ${pinClass}" title="${pinTitle}"
+            onclick="event.stopPropagation();startStorePinMode(${esc(JSON.stringify(lpArea))}, ${esc(JSON.stringify(store))})">📍</button>
+          <span class="hierarchy-chevron">›</span>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function renderListFoods() {
+  const el = document.getElementById('list-content');
+  const list = foods.filter(f =>
+    f.park === currentPark &&
+    (f.area  || '（エリア未設定）') === lpArea &&
+    (f.store || '（店舗未設定）')   === lpStore
+  );
+  renderListFlat(el, list);
+}
+
+function renderListFlat(el, list) {
+  document.getElementById('list-page-count').textContent = `${list.length}件`;
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state"><div class="big">🍽️</div>フードがありません</div>`;
+    return;
+  }
+  el.innerHTML = list.map(f => `
+    <div class="food-card ${f.eaten?'eaten':'uneaten'}">
+      <div class="food-card-inner">
+        <div class="food-thumb">
+          ${f.img ? `<img src="${esc(f.img)}" onerror="this.parentElement.innerHTML='🍽️'">` : '🍽️'}
+        </div>
+        <div class="food-card-body">
+          <div class="food-card-top">
+            <div class="food-card-name">${esc(f.name)}</div>
+            <div class="food-card-actions">
+              <button class="icon-btn btn-fav ${f.favorite?'active':''}"
+                onclick="toggleFavorite('${f.id}')"
+                title="${f.favorite?'お気に入り解除':'お気に入りに追加'}">
+                ${f.favorite?'⭐':'☆'}</button>
+              <button class="icon-btn btn-focus"
+                onclick="focusFoodFromList('${f.id}')">📍</button>
+              <button class="icon-btn btn-eaten ${f.eaten?'done':''}"
+                onclick="toggleEaten('${f.id}')">
+                ${f.eaten?'✅':'🎯'}</button>
+              <button class="icon-btn btn-delete"
+                onclick="deleteFood('${f.id}')">🗑</button>
+            </div>
+          </div>
+          <div class="food-card-meta">
+            ${f.price ? `<span class="price-tag">¥${Number(f.price).toLocaleString()}</span>` : ''}
+            ${f.area  ? `<span class="area-tag">${esc(f.area)}</span>` : ''}
+            ${f.store ? `<span class="area-tag" style="background:#f0f7ff;color:#2a7ae2;">🏪 ${esc(f.store)}</span>` : ''}
+          </div>
+          <div class="food-card-note-wrap" onclick="editFoodNote('${f.id}')" title="タップしてメモを編集">
+            ${f.note
+              ? `<div class="food-card-note">📝 ${esc(f.note)}</div>`
+              : `<div class="food-card-note-empty">📝 フレーバー・メモを追加</div>`}
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// 店舗の全アイテムにフレーバー・メモを一括設定
+function setStoreFlavor(area, store) {
+  const items = foods.filter(f =>
+    f.park === currentPark &&
+    (f.area  || '（エリア未設定）') === area &&
+    (f.store || '（店舗未設定）')   === store
+  );
+  if (!items.length) return;
+  const cur = items[0].note || '';
+  const val = prompt(`「${store}」\n全${items.length}品のフレーバー・メモを一括設定\n例: #塩バター / #キャラメル`, cur);
+  if (val === null) return;
+  items.forEach(f => { f.note = val.trim(); });
+  save();
+  renderListPage();
+  showToast(`🏷 ${items.length}品に「${val.trim()}」を設定しました`);
+}
+
+// note 編集
+function editFoodNote(id) {
+  const food = foods.find(f => f.id === id);
+  if (!food) return;
+  const cur = food.note || '';
+  const val = prompt(`「${food.name}」のメモ・フレーバーを入力\n例: #塩バター / おすすめ！`, cur);
+  if (val === null) return; // キャンセル
+  food.note = val.trim();
+  save();
+  // 表示中のリストを更新
+  if (document.getElementById('list-page').classList.contains('open')) renderListPage();
+  renderFavorites();
+  showToast('📝 メモを保存しました');
+}
+
+function focusFoodFromList(id) {
+  closeListPage();
+  setTimeout(() => focusFood(id), 350);
+}
+
+function toggleFormFav() {
+  formFav = !formFav;
+  document.getElementById('fav-toggle').classList.toggle('on', formFav);
+  document.getElementById('fav-form-icon').textContent = formFav ? '⭐' : '☆';
+}
+
+// ─── Search & Filter ──────────────────────────────────────────────────────
+function onSearch() {
+  searchQuery = document.getElementById('search-input').value;
+  document.getElementById('search-clear').classList.toggle('visible', searchQuery.length > 0);
+  renderFavorites();
+}
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  searchQuery = '';
+  document.getElementById('search-clear').classList.remove('visible');
+  renderFavorites();
+}
+function setFilter(f) {
+  currentFilter = f;
+  ['all','eaten','uneaten'].forEach(x =>
+    document.getElementById('filter-'+x).classList.toggle('active', x === f));
+  renderFavorites();
+}
+
+// ─── Favorites List (sidebar) ─────────────────────────────────────────────
+function renderFavorites() {
+  const el = document.getElementById('food-list');
+  let list = foods.filter(f => f.park === currentPark && f.favorite);
+  if (currentFilter === 'eaten')   list = list.filter(f => f.eaten);
+  if (currentFilter === 'uneaten') list = list.filter(f => !f.eaten);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(f =>
+      f.name.toLowerCase().includes(q) ||
+      (f.area && f.area.toLowerCase().includes(q)) ||
+      (f.note && f.note.toLowerCase().includes(q))
+    );
+  }
+  const totalFav = foods.filter(f => f.park === currentPark && f.favorite).length;
+  document.getElementById('food-count').textContent =
+    list.length < totalFav ? `${list.length}/${totalFav}件` : `${totalFav}件`;
+
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state"><div class="big">⭐</div>
+      ${searchQuery
+        ? `「${esc(searchQuery)}」は見つかりません`
+        : totalFav === 0
+          ? '一覧ボタンからフードを選んで<br>⭐をタップして追加しよう！'
+          : 'このフィルターに<br>該当するフードはありません'}
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = list.map(f => `
+    <div class="food-card ${f.eaten?'eaten':'uneaten'}" onclick="focusFood('${f.id}')">
+      <div class="food-card-inner">
+        <div class="food-thumb">
+          ${f.img
+            ? `<img src="${esc(f.img)}" onerror="this.parentElement.innerHTML='🍽️'">`
+            : '🍽️'}
+        </div>
+        <div class="food-card-body">
+          <div class="food-card-top">
+            <div class="food-card-name">${esc(f.name)}</div>
+            <div class="food-card-actions">
+              <button class="icon-btn btn-fav active"
+                onclick="event.stopPropagation();toggleFavorite('${f.id}')"
+                title="お気に入り解除">⭐</button>
+              <button class="icon-btn btn-focus"
+                onclick="event.stopPropagation();focusFood('${f.id}')">📍</button>
+              <button class="icon-btn btn-eaten ${f.eaten?'done':''}"
+                onclick="event.stopPropagation();toggleEaten('${f.id}')">
+                ${f.eaten?'✅':'🎯'}</button>
+              <button class="icon-btn btn-delete"
+                onclick="event.stopPropagation();deleteFood('${f.id}')">🗑</button>
+            </div>
+          </div>
+          <div class="food-card-meta">
+            ${f.price ? `<span class="price-tag">¥${Number(f.price).toLocaleString()}</span>` : ''}
+            ${f.area  ? `<span class="area-tag">${esc(f.area)}</span>` : ''}
+            ${f.store ? `<span class="area-tag" style="background:#f0f7ff;color:#2a7ae2;">🏪 ${esc(f.store)}</span>` : ''}
+          </div>
+          ${f.note ? `<div class="food-card-note">${esc(f.note)}</div>` : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// お気に入りトグル
+function toggleFavorite(id) {
+  const food = foods.find(f => f.id === id);
+  if (!food) return;
+  food.favorite = !food.favorite;
+  // ⭐追加時：座標未設定なら店舗テーブルから自動付与
+  if (food.favorite && food.lat == null) {
+    const assigned = assignStoreCoords(food);
+    if (assigned) showToast('⭐ お気に入りに追加！📍 位置を自動設定しました');
+    else          showToast('⭐ お気に入りに追加！');
+  } else {
+    showToast(food.favorite ? '⭐ お気に入りに追加！' : '☆ お気に入りを解除しました');
+  }
+  save();
+  renderFavorites();
+  if (document.getElementById('list-page').classList.contains('open')) renderListPage();
+  renderMarker(food);
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────
+// ─── Image handling ───────────────────────────────────────────────────────
+// 選択した画像ファイルをリサイズ・圧縮してプレビュー表示
+async function handleImgFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const dataUrl = await compressImage(file);
+    document.getElementById('f-img').value = '';        // URL欄はクリア
+    showImgPreview(dataUrl);
+    document.getElementById('img-upload-label').textContent = '✅ 写真を変更';
+  } catch(e) {
+    showToast('⚠️ 画像の読み込みに失敗しました');
+  }
+  event.target.value = '';
+}
+
+// URL入力時のプレビュー
+function previewImgUrl() {
+  const url = document.getElementById('f-img').value.trim();
+  if (url) {
+    showImgPreview(url);
+    document.getElementById('img-upload-label').textContent = '📷 写真を選択 / 撮影';
+  } else {
+    clearImg();
+  }
+}
+
+function showImgPreview(src) {
+  const preview = document.getElementById('img-preview');
+  const wrap    = document.getElementById('img-preview-wrap');
+  preview.src = src;
+  preview.onerror = () => { clearImg(); showToast('⚠️ 画像を読み込めません'); };
+  wrap.style.display = 'block';
+}
+
+function clearImg() {
+  document.getElementById('f-img').value = '';
+  document.getElementById('f-img-file').value = '';
+  document.getElementById('img-preview-wrap').style.display = 'none';
+  document.getElementById('img-preview').src = '';
+  document.getElementById('img-upload-label').textContent = '📷 写真を選択 / 撮影';
+}
+
+// 画像をリサイズ・圧縮（最大600px・JPEG 72%）
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 600;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > MAX || h > MAX) {
+        if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+        else        { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL('image/jpeg', 0.72));
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('load failed')); };
+    img.src = objectUrl;
+  });
+}
+
+// ─── 店舗位置設定モード ────────────────────────────────────────────────────
+function startStorePinMode(area, store) {
+  if (!mapIsReady) {
+    showToast('先にマップを読み込んでください');
+    return;
+  }
+  pendingStorePin = { area, store };
+  closeListPage();
+  // マップが見えるようにスナップ調整（マップ多め）
+  if (typeof setMapVh === 'function') setMapVh(68);
+  document.getElementById('store-pin-name').textContent = store;
+  document.getElementById('store-pin-banner').classList.add('visible');
+  document.getElementById('map-hint').classList.remove('visible');
+  // マップカーソルを十字に
+  document.getElementById('map').style.cursor = 'crosshair';
+}
+
+function cancelStorePinMode() {
+  pendingStorePin = null;
+  document.getElementById('store-pin-banner').classList.remove('visible');
+  if (mapIsReady) document.getElementById('map-hint').classList.add('visible');
+  document.getElementById('map').style.cursor = '';
+}
+
+function openModal() {
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => document.getElementById('f-name').focus(), 150);
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  pendingLatLng = null;
+}
+function closeModalOnBg(e) {
+  if (e.target === document.getElementById('modal')) closeModal();
+}
+function clearForm() {
+  ['f-name','f-price','f-area','f-store','f-note']
+    .forEach(id => document.getElementById(id).value = '');
+  formFav = false;
+  const ft = document.getElementById('fav-toggle');
+  const fi = document.getElementById('fav-form-icon');
+  if (ft) ft.classList.remove('on');
+  if (fi) fi.textContent = '☆';
+  clearImg();
+}
+
+function saveFood() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { document.getElementById('f-name').focus(); return; }
+  if (!pendingLatLng) { closeModal(); return; }
+  const food = {
+    id: Date.now().toString(), park: currentPark,
+    lat: pendingLatLng.lat,   lng: pendingLatLng.lng,
+    name,
+    price: document.getElementById('f-price').value,
+    area:  document.getElementById('f-area').value.trim(),
+    store: document.getElementById('f-store').value.trim(),
+    // アップロード画像(data URL)またはURL欄の値を使用
+    img:   document.getElementById('img-preview').src || document.getElementById('f-img').value.trim() || '',
+    note:  document.getElementById('f-note').value.trim(),
+    eaten: false,
+    favorite: formFav
+  };
+  foods.push(food); save();
+  renderMarker(food); renderFavorites(); updateStats();
+  closeModal();
+  showToast(`📍 ${name} を追加しました`);
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────
+function focusFood(id) {
+  const food = foods.find(f => f.id === id);
+  if (!food) return;
+  if (food.park !== currentPark) { switchPark(food.park); return; }
+  if (food.lat != null) {
+    map.setView([food.lat, food.lng], 1, { animate: true });
+    if (markers[id]) markers[id].openPopup();
+  }
+}
+function toggleEaten(id) {
+  const food = foods.find(f => f.id === id);
+  if (!food) return;
+  food.eaten = !food.eaten; save();
+  renderMarker(food); renderFavorites(); updateStats();
+  if (document.getElementById('list-page').classList.contains('open')) renderListPage();
+  showToast(food.eaten ? '✅ 食べた！' : '🎯 未食に戻しました');
+}
+function deleteFood(id) {
+  if (!confirm('このフードを削除しますか？')) return;
+  if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+  foods = foods.filter(f => f.id !== id); save();
+  renderFavorites(); updateStats();
+  if (document.getElementById('list-page').classList.contains('open')) renderListPage();
+}
+
+// ─── Draggable Split ──────────────────────────────────────────────────────
+// スナップ位置（vh）: 0=リストのみ, 28=半々, 52=デフォルト
+const SNAP_VH = [0, 28, 52];
+let currentSnap = 1; // デフォルトは真ん中（52vh）
+
+// 実は SNAP_VH[1]=28, SNAP_VH[2]=52 を使う。初期は index 2
+// 分かりやすく: 0→リスト全画面, 1→半々, 2→マップ多め
+(function initSnap() { currentSnap = 2; })();
+
+const mapWrapperEl = document.querySelector('.map-wrapper');
+
+function setMapVh(vh, animate = true) {
+  if (animate) {
+    mapWrapperEl.style.transition = 'height 0.28s cubic-bezier(0.4,0,0.2,1)';
+  } else {
+    mapWrapperEl.style.transition = 'none';
+  }
+  mapWrapperEl.style.height = `${vh}vh`;
+  setTimeout(() => map.invalidateSize(), animate ? 300 : 60);
+  updateHandleUI(vh);
+}
+
+function updateHandleUI(vh) {
+  // どのスナップに近いか判定
+  let closest = 0;
+  SNAP_VH.forEach((s, i) => {
+    if (Math.abs(vh - s) < Math.abs(vh - SNAP_VH[closest])) closest = i;
+  });
+  // ドット更新
+  document.querySelectorAll('.snap-dot').forEach((d, i) =>
+    d.classList.toggle('active', i === closest));
+  // ラベル更新
+  const label = document.getElementById('handle-label');
+  if (closest === 0)      label.textContent = '▼ 下にドラッグでマップを表示';
+  else if (closest === 2) label.textContent = '▲ 上にドラッグでリストを広げる';
+  else                    label.textContent = '↕ ドラッグで調整';
+}
+
+// タップでスナップ切り替え
+function onHandleTap() {
+  currentSnap = (currentSnap + 2) % 3; // 2→0→1→2... (逆順で 2→0→2 のトグル感)
+  // シンプルに: 0↔2 のトグル（半々は中間ドラッグで）
+  currentSnap = currentSnap === 2 ? 0 : 2;
+  setMapVh(SNAP_VH[currentSnap], true);
+}
+
+// ドラッグ処理
+let dragState = null;
+
+function onDragStart(clientY) {
+  dragState = {
+    startY: clientY,
+    startH: mapWrapperEl.getBoundingClientRect().height
+  };
+  mapWrapperEl.style.transition = 'none';
+}
+
+function onDragMove(clientY) {
+  if (!dragState) return;
+  const dy = clientY - dragState.startY;
+  const newH = Math.max(0, Math.min(window.innerHeight * 0.72, dragState.startH + dy));
+  mapWrapperEl.style.height = `${newH}px`;
+  map.invalidateSize();
+  updateHandleUI(newH / window.innerHeight * 100);
+}
+
+function onDragEnd() {
+  if (!dragState) return;
+  const currentVh = mapWrapperEl.getBoundingClientRect().height / window.innerHeight * 100;
+  // 最近いスナップに吸い付く
+  let closest = 0;
+  SNAP_VH.forEach((s, i) => {
+    if (Math.abs(currentVh - s) < Math.abs(currentVh - SNAP_VH[closest])) closest = i;
+  });
+  currentSnap = closest;
+  setMapVh(SNAP_VH[closest], true);
+  dragState = null;
+}
+
+// タッチイベント
+const handle = document.getElementById('split-handle');
+handle.addEventListener('touchstart', e => {
+  onDragStart(e.touches[0].clientY);
+}, { passive: true });
+handle.addEventListener('touchmove', e => {
+  onDragMove(e.touches[0].clientY);
+  e.preventDefault();
+}, { passive: false });
+handle.addEventListener('touchend', onDragEnd);
+
+// マウスイベント（PC用）
+handle.addEventListener('mousedown', e => {
+  onDragStart(e.clientY);
+  const onMove = ev => onDragMove(ev.clientY);
+  const onUp   = () => { onDragEnd(); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  e.preventDefault();
+});
+
+// ─── Menu Extractor Script ────────────────────────────────────────────────
+// ─── ブックマークレット ────────────────────────────────────────────────────
+// クリップボードにデータをコピーし、短いURLでアプリを開く（URL長問題を回避）
+const BOOKMARKLET_TEMPLATE = `(function(){var u=location.href,pk=u.includes('/tdl/')?'tdl':u.includes('/tds/')?'tds':'tdl',ts=Date.now(),fd=[],ns=new Set();var sn=(document.querySelector('.p-pageHeader__title,.p-restaurantHeader__name,h1.p-title,h1')||{textContent:document.title.split(/[|｜]/)[0]}).textContent.trim().replace(/\\s+/g,' ');var KA=['ワールドバザール','アドベンチャーランド','ウエスタンランド','クリッターカントリー','ファンタジーランド','トゥーンタウン','トゥモローランド','メディテレーニアンハーバー','アメリカンウォーターフロント','ポートディスカバリー','ロストリバーデルタ','アラビアンコースト','マーメイドラグーン','ミステリアスアイランド','ファンタジースプリングス'];var ar='';[...document.querySelectorAll('.p-breadcrumb a,.breadcrumb a,[class*=\\"breadcrumb\\"] a,nav ol a,nav ul a')].forEach(function(a){if(!ar&&KA.indexOf(a.textContent.trim())>=0)ar=a.textContent.trim();});if(!ar){var bt=document.body.innerText||'';KA.forEach(function(a){if(!ar&&bt.indexOf(a)>=0)ar=a;});}var JK=new Set(['1個','2個','3個','1本','2本','プラス','マークの説明','スウィーツ','ソフトドリンク','アルコールドリンク','アルコール','サイドディッシュ','スナック','お子様メニュー','お子様','フード','ドリンク','デザート','各種','メニュー','セット','サイド','追加','オプション','ランチ','ディナー','コース']);function ij(n){if(!n||n.length<2)return 1;if(n===sn)return 1;if(n.includes('|')||n.includes('｜'))return 1;if(n.startsWith('【'))return 1;if(n.endsWith('各種'))return 1;if(n.endsWith('メニュー')&&n.length<=12)return 1;if(/^\\d+([個本枚皿]|人前)$/.test(n))return 1;if(/<[a-z]+[\\s>]/i.test(n))return 1;if(/^\\d+月\\d+日/.test(n))return 1;if(n.includes('新価格')||n.includes('価格変更'))return 1;if(/javascript/i.test(n))return 1;if(JK.has(n))return 1;if(n.startsWith('「')&&n.length>25)return 1;return 0;}var fl='';document.querySelectorAll('*').forEach(function(e){if(e.children.length>0)return;var t=(e.textContent||'').trim();if(/^[#＃][^\\s]{1,15}$/.test(t))fl=t.replace(/^[#＃]/,'');});function tx(e,s){var f=e.querySelector(s);return f&&f.textContent.trim()?f.textContent.trim():'';}function px(t){var m=t.match(/[\\d,]+/);return m?m[0].replace(/,/g,''):''}var CS='[class*=\\"menuCard\\"],[class*=\\"MenuItem\\"],[class*=\\"menu-item\\"],[class*=\\"menuItem\\"],.p-menuCard,.p-menuItem,.p-menu__item,.p-content__item';var NS='[class*=\\"name\\"],[class*=\\"Name\\"],h3,h4,h2,strong';var PS='[class*=\\"price\\"],[class*=\\"Price\\"],em,[class*=\\"yen\\"]';var DS='[class*=\\"desc\\"],[class*=\\"note\\"],[class*=\\"text\\"],p';var cs=document.querySelectorAll(CS);if(cs.length){cs.forEach(function(c,i){var n=tx(c,NS);if(!n||n.length>80||ns.has(n)||ij(n))return;ns.add(n);var nv=tx(c,DS);if(nv===n)nv='';if(!nv&&fl)nv='#'+fl;fd.push({id:'imp_'+pk+'_'+ts+'_'+i,park:pk,area:ar,store:sn,name:n,price:px(tx(c,PS)),note:nv,img:'',lat:null,lng:null,eaten:false,favorite:false});});}if(!fd.length){var re=/¥\\s*[\\d,]+|[\\d,]+\\s*円/;document.querySelectorAll('*').forEach(function(e,i){if(!re.test(e.textContent)||e.children.length>6)return;if(/^(SCRIPT|STYLE|HEAD)$/.test(e.tagName))return;var t=e.textContent.trim(),m=t.match(/¥\\s*([\\d,]+)|([\\d,]+)\\s*円/);if(!m)return;var p=(m[1]||m[2]).replace(/,/g,'');var n=t.replace(/¥\\s*[\\d,]+|[\\d,]+\\s*円[\\s\\S]*/,'').trim().split('\\n')[0].trim();if(!n||n.length>60||n.length<2||ns.has(n)||ij(n))return;ns.add(n);fd.push({id:'imp_'+pk+'_'+ts+'_'+i,park:pk,area:ar,store:sn,name:n,price:p,note:fl?'#'+fl:'',img:'',lat:null,lng:null,eaten:false,favorite:false});});}if(!fd.length){alert('メニューが見つかりませんでした。');return;}
+var js=JSON.stringify(fd),by=new TextEncoder().encode(js),bn='';by.forEach(function(b){bn+=String.fromCharCode(b);});var enc=btoa(bn).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
+var copied=false;try{var ta=document.createElement('textarea');ta.value=enc;ta.style.cssText='position:fixed;top:-9999px;opacity:0;';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,99999);copied=document.execCommand('copy');document.body.removeChild(ta);}catch(e){}
+var ov=document.createElement('div');ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+var bx=document.createElement('div');bx.style.cssText='background:#fff;border-radius:20px;padding:28px 24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4);';
+var step2=copied?'②「同期」→「コードを貼り付けて取り込む」に<b>Ctrl+V</b>で貼り付け':'②アプリの「同期」→「JSONインポート」から読み込み';
+bx.innerHTML='<div style="font-size:2.4rem;margin-bottom:6px;">'+(copied?'📋':'✅')+'</div><div style="font-size:1.1rem;font-weight:700;color:#1a1a2e;margin-bottom:8px;">'+fd.length+'件を'+(copied?'クリップボードにコピー！':'取得')+'しました</div><div style="background:#f0f7ff;border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:0.8rem;color:#333;text-align:left;line-height:2;">①下のボタンでアプリを開く<br>'+step2+'</div><a href="__APP_URL__" style="display:block;background:#1a56b0;color:#fff;padding:14px 20px;border-radius:12px;text-decoration:none;font-weight:700;font-size:1rem;margin-bottom:10px;">🏰 アプリを開く →</a><button onclick="this.parentNode.parentNode.parentNode.removeChild(this.parentNode.parentNode)" style="background:none;border:none;color:#aaa;font-size:0.8rem;cursor:pointer;">閉じる</button>';
+ov.appendChild(bx);document.body.appendChild(ov);ov.addEventListener('click',function(e){if(e.target===ov)document.body.removeChild(ov);});
+})()`;
+
+
+function buildBookmarkletUrl() {
+  const appUrl = location.origin + location.pathname;
+  const code = BOOKMARKLET_TEMPLATE.split('__APP_URL__').join(appUrl);
+  return 'javascript:' + encodeURIComponent(code);
+}
+
+function showBookmarkletModal() {
+  document.getElementById('bookmarklet-modal').classList.add('open');
+}
+function closeBookmarkletModal() {
+  document.getElementById('bookmarklet-modal').classList.remove('open');
+}
+function closeBookmarkletOnBg(e) {
+  if (e.target === document.getElementById('bookmarklet-modal')) closeBookmarkletModal();
+}
+async function copyBookmarkletUrl() {
+  const url = buildBookmarkletUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('📋 ブックマークレットURLをコピーしました');
+  } catch(e) {
+    prompt('このURLをコピーして、ブックマークのURLとして登録してください：', url);
+  }
+}
+
+const EXTRACTOR_SCRIPT = String.raw`(function(){
+  var url=location.href,
+      park=url.includes('/tdl/')?'tdl':url.includes('/tds/')?'tds':'tdl',
+      ts=Date.now(), foods=[], nameSet=new Set();
+  var storeName=(document.querySelector('.p-pageHeader__title,.p-restaurantHeader__name,h1.p-title,h1')
+    ||{textContent:document.title.split(/[|｜]/)[0]}).textContent.trim().replace(/\s+/g,' ');
+
+  // ── エリア名を正確に特定（既知のエリア名リストと照合）──
+  var KNOWN_AREAS=[
+    'ワールドバザール','アドベンチャーランド','ウエスタンランド','クリッターカントリー',
+    'ファンタジーランド','トゥーンタウン','トゥモローランド',
+    'メディテレーニアンハーバー','アメリカンウォーターフロント','ポートディスカバリー',
+    'ロストリバーデルタ','アラビアンコースト','マーメイドラグーン',
+    'ミステリアスアイランド','ファンタジースプリングス'
+  ];
+  var area='';
+  // ① パンくずリンクを既知エリアと照合
+  var bcLinks=[...document.querySelectorAll('.p-breadcrumb a,.breadcrumb a,[class*="breadcrumb"] a,nav ol a,nav ul a')];
+  for(var i=0;i<bcLinks.length;i++){
+    var t=bcLinks[i].textContent.trim();
+    if(KNOWN_AREAS.indexOf(t)>=0){area=t;break;}
+  }
+  // ② 見つからなければページ本文全体から検索
+  if(!area){
+    var body=document.body.innerText||'';
+    for(var j=0;j<KNOWN_AREAS.length;j++){
+      if(body.indexOf(KNOWN_AREAS[j])>=0){area=KNOWN_AREAS[j];break;}
+    }
+  }
+
+  // ── ゴミ名フィルター（カテゴリ見出し・ページ情報・お知らせ等を除去）──
+  var JUNK=new Set(['1個','2個','3個','1本','2本','プラス','マークの説明',
+    'スウィーツ','ソフトドリンク','アルコールドリンク','アルコール',
+    'サイドディッシュ','スナック','お子様メニュー','お子様','フード','ドリンク',
+    'デザート','各種','メニュー','セット','サイド','追加','オプション','ランチ','ディナー','コース']);
+  function isJunk(name){
+    if(!name||name.length<2)return true;
+    if(name===storeName)return true;
+    if(name.includes('|')||name.includes('｜'))return true;
+    if(name.startsWith('【'))return true;
+    if(name.endsWith('各種'))return true;
+    if(name.endsWith('メニュー')&&name.length<=12)return true;
+    if(/^\d+(個|本|枚|皿|人前)$/.test(name))return true;
+    if(/<[a-z]+[\s>]/i.test(name))return true;          // HTMLタグ混入
+    if(/^\d+月\d+日/.test(name))return true;             // 日付告知（新価格等）
+    if(name.includes('新価格')||name.includes('価格変更'))return true;
+    if(/javascript/i.test(name))return true;             // JSエラーメッセージ
+    if(JUNK.has(name))return true;
+    if(name.startsWith('「')&&name.length>25)return true;
+    return false;
+  }
+
+  // ── フレーバー（#タグ）を取得 ──────────────────────────────────────────
+  // 公式サイトのポップコーンワゴン等では #〇〇味 形式で表示される
+  var flavor='';
+  document.querySelectorAll('*').forEach(function(el){
+    if(el.children.length>0)return; // 末端ノードのみ
+    var t=(el.textContent||'').trim();
+    // #または＃で始まる短いテキスト（フレーバータグ）を検出
+    if(/^[#＃][^\s]{1,15}$/.test(t)){
+      flavor=t.replace(/^[#＃]/,'');
+    }
+  });
+
+  var CARD=['[class*="menuCard"],[class*="MenuItem"],[class*="menu-item"],[class*="menuItem"],.p-menuCard,.p-menuItem,.p-menu__item,.p-content__item'];
+  var NAME=['[class*="name"],[class*="Name"],h3,h4,h2,strong'];
+  var PRICE=['[class*="price"],[class*="Price"],em,[class*="yen"]'];
+  var DESC=['[class*="desc"],[class*="note"],[class*="text"],p'];
+  function tx(el,sels){for(var s of sels){var f=el.querySelector(s);if(f&&f.textContent.trim())return f.textContent.trim();}return '';}
+  function px(t){var m=t.match(/[\d,]+/);return m?m[0].replace(/,/g,''):''}
+  var cards=document.querySelectorAll(CARD.join(','));
+  if(cards.length){
+    cards.forEach(function(c,i){
+      var name=tx(c,NAME.join(',').split(','));
+      if(!name||name.length>80||nameSet.has(name)||isJunk(name))return;
+      nameSet.add(name);
+      var priceRaw=tx(c,PRICE.join(',').split(','));
+      var note=tx(c,DESC.join(',').split(','));
+      var noteVal=(note&&note!==name)?note:(flavor?'#'+flavor:'');
+      var img=(c.querySelector('img')||{}).dataset||{};
+      foods.push({id:'imp_'+park+'_'+ts+'_'+i,park:park,area:area,store:storeName,
+        name:name,price:px(priceRaw),note:noteVal,
+        img:'',lat:null,lng:null,eaten:false,favorite:false});
+    });
+  }
+  if(!foods.length){
+    var re=/¥\s*[\d,]+|[\d,]+\s*円/;
+    document.querySelectorAll('*').forEach(function(el,i){
+      if(!re.test(el.textContent)||el.children.length>6)return;
+      if(/^(SCRIPT|STYLE|HEAD)$/.test(el.tagName))return;
+      var t=el.textContent.trim(),m=t.match(/¥\s*([\d,]+)|([\d,]+)\s*円/);
+      if(!m)return;
+      var price=(m[1]||m[2]).replace(/,/g,'');
+      var name=t.replace(/¥\s*[\d,]+|[\d,]+\s*円[\s\S]*/,'').trim().split('\n')[0].trim();
+      if(!name||name.length>60||name.length<2||nameSet.has(name)||isJunk(name))return;
+      nameSet.add(name);
+      foods.push({id:'imp_'+park+'_'+ts+'_'+i,park:park,area:area,store:storeName,
+        name:name,price:price,note:flavor?'#'+flavor:'',img:'',lat:null,lng:null,eaten:false,favorite:false});
+    });
+  }
+  if(!foods.length){alert('メニューが見つかりませんでした。\nページが完全に読み込まれているか確認してください。');return;}
+  var json=JSON.stringify(foods,null,2);
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([json],{type:'application/json;charset=utf-8'}));
+  a.download='disney_menu_'+storeName.replace(/[\\/:*?"<>| ]/g,'_').slice(0,30)+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  alert('✅ '+foods.length+'件を抽出しました！\n\nダウンロードされたJSONを\nアプリの「同期→JSONインポート」で読み込んでください。');
+})();`;
+
+// ─── 全店舗一括取得スクリプト（iframeモード）────────────────────────────────
+const BULK_EXTRACTOR_SCRIPT = String.raw`(async function(){
+var park=location.href.includes('/tdl/')?'tdl':'tds';
+var ts=Date.now(),allFoods=[],errors=[];
+var KNOWN_AREAS=['ワールドバザール','アドベンチャーランド','ウエスタンランド','クリッターカントリー','ファンタジーランド','トゥーンタウン','トゥモローランド','メディテレーニアンハーバー','アメリカンウォーターフロント','ポートディスカバリー','ロストリバーデルタ','アラビアンコースト','マーメイドラグーン','ミステリアスアイランド','ファンタジースプリングス'];
+var JUNK=new Set(['1個','2個','3個','1本','2本','プラス','マークの説明','スウィーツ','ソフトドリンク','アルコールドリンク','アルコール','サイドディッシュ','スナック','お子様メニュー','お子様','フード','ドリンク','デザート','各種','メニュー','セット','サイド','追加','オプション','ランチ','ディナー','コース']);
+function isJunk(n,sn){if(!n||n.length<2)return 1;if(n===sn)return 1;if(n.includes('|')||n.includes('｜'))return 1;if(n.startsWith('【'))return 1;if(n.endsWith('各種'))return 1;if(n.endsWith('メニュー')&&n.length<=12)return 1;if(/^\d+([個本枚皿]|人前)$/.test(n))return 1;if(/<[a-z]+[\s>]/i.test(n))return 1;if(/^\d+月\d+日/.test(n))return 1;if(n.includes('新価格')||n.includes('価格変更'))return 1;if(/javascript/i.test(n))return 1;if(JUNK.has(n))return 1;if(n.startsWith('「')&&n.length>25)return 1;return 0;}
+function tx(el,sel){var f=el.querySelector(sel);return f&&f.textContent.trim()?f.textContent.trim():'';}
+function px(t){var m=t.match(/[\d,]+/);return m?m[0].replace(/,/g,''):''}
+
+// 進捗オーバーレイを作成
+var OV=document.createElement('div');
+OV.id='_bulkOV';
+OV.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+OV.innerHTML='<div style="background:#fff;border-radius:16px;padding:28px 32px;text-align:center;max-width:320px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.4)"><div style="font-size:2.4rem;margin-bottom:10px">🏰</div><div id="_bSt" style="font-size:.9rem;font-weight:700;color:#1a56b0;margin-bottom:6px">準備中...</div><div id="_bPg" style="font-size:.78rem;color:#555;margin-bottom:10px"></div><div style="font-size:.68rem;color:#aaa">F12コンソールで詳細確認できます</div></div>';
+document.body.appendChild(OV);
+function setSt(s,p){var a=document.getElementById('_bSt'),b=document.getElementById('_bPg');if(a)a.textContent=s;if(b&&p!==undefined)b.textContent=p;}
+
+// iframeでJSレンダリング済みDOMを取得
+// ※ sandboxなし＋実サイズ → Intersection Observer/遅延ロードを正常作動させる
+function loadViaIframe(url){
+  return new Promise(function(resolve){
+    var fr=document.createElement('iframe');
+    // sandboxを外す（Disney側はframe-busting未実装と確認）
+    // スマホ相当サイズで描画させる（1x1pxだと遅延ロードが発火しない）
+    fr.style.cssText='position:fixed;width:390px;height:844px;left:-9999px;top:0;border:0;pointer-events:none;visibility:hidden;';
+    var done=false,timer,stTimer;
+    function finish(){
+      if(done)return;done=true;clearTimeout(timer);clearTimeout(stTimer);
+      try{var d=fr.contentDocument;resolve(d&&d.body?d:null);}catch(e){resolve(null);}
+      setTimeout(function(){try{document.body.removeChild(fr);}catch(e){}},200);
+    }
+    fr.onload=function(){
+      // JSが動いたら 500ms毎にコンテンツが増えているか監視
+      // ¥か円が出現したら即座に取得（最大8秒）
+      var prevLen=0,stableCount=0;
+      stTimer=setInterval(function(){
+        try{
+          var d=fr.contentDocument;
+          if(!d||!d.body)return;
+          var len=d.body.textContent.length;
+          var hasPrice=d.body.textContent.includes('¥')||d.body.textContent.includes('円');
+          if(hasPrice){clearInterval(stTimer);timer=setTimeout(finish,500);return;}
+          if(len>1000&&Math.abs(len-prevLen)<100){
+            stableCount++;
+            if(stableCount>=3){clearInterval(stTimer);finish();return;}
+          }else{stableCount=0;}
+          prevLen=len;
+        }catch(e){}
+      },500);
+      // 最大8秒で強制終了
+      timer=setTimeout(function(){clearInterval(stTimer);finish();},8000);
+    };
+    fr.onerror=finish;
+    document.body.appendChild(fr);
+    fr.src=url;
+    setTimeout(function(){clearInterval(stTimer);finish();},22000); // 絶対タイムアウト
+  });
+}
+
+function extractFromDoc(doc,url,storeIdx){
+  var pk=url.includes('/tdl/')?'tdl':'tds';
+  var titleEl=doc.querySelector('.p-pageHeader__title,.p-restaurantHeader__name,[class*="restaurantName"],[class*="restaurant-name"],h1.p-title,h1');
+  var sn=(titleEl?titleEl.textContent:doc.title.split(/[|｜]/)[0]).trim().replace(/\s+/g,' ');
+  var ar='';
+  var bcLinks=[...doc.querySelectorAll('.p-breadcrumb a,.breadcrumb a,[class*="breadcrumb"] a,nav ol a,nav ul a')];
+  for(var i=0;i<bcLinks.length;i++){var t=bcLinks[i].textContent.trim();if(KNOWN_AREAS.indexOf(t)>=0){ar=t;break;}}
+  if(!ar){var bt=doc.body.textContent||'';for(var j=0;j<KNOWN_AREAS.length;j++){if(bt.indexOf(KNOWN_AREAS[j])>=0){ar=KNOWN_AREAS[j];break;}}}
+  var foods=[],ns=new Set(),fl='';
+  doc.querySelectorAll('*').forEach(function(e){if(e.children.length>0)return;var t=(e.textContent||'').trim();if(/^[#＃][^\s]{1,15}$/.test(t))fl=t.replace(/^[#＃]/,'');});
+  // 戦略1: DOMクラス名マッチング
+  var CS='[class*="menuCard"],[class*="MenuItem"],[class*="menu-item"],[class*="menuItem"],[class*="menu_item"],[class*="MenuCard"],[class*="restaurantMenu"],[class*="foodItem"],[class*="food-item"],[class*="pbBlock"] table tr,.p-menuCard,.p-menuItem,.p-menu__item,.p-content__item';
+  var NS='[class*="name"],[class*="Name"],h3,h4,h2,strong,td:first-child,th:first-child';
+  var PS='[class*="price"],[class*="Price"],em,[class*="yen"],[class*="Yen"],td:last-child';
+  var DS='[class*="desc"],[class*="note"],[class*="text"],p';
+  var cs=doc.querySelectorAll(CS);
+  if(cs.length){cs.forEach(function(c,i){var n=tx(c,NS);if(!n||n.length>80||ns.has(n)||isJunk(n,sn))return;ns.add(n);var nv=tx(c,DS);if(nv===n)nv='';if(!nv&&fl)nv='#'+fl;foods.push({id:'imp_'+pk+'_'+ts+'_'+storeIdx+'_d'+i,park:pk,area:ar,store:sn,name:n,price:px(tx(c,PS)),note:nv,img:'',lat:null,lng:null,eaten:false,favorite:false});});}
+  if(foods.length)return{sn:sn,foods:foods,via:'DOM'};
+  // 戦略2: 価格パターンスキャン
+  var re=/¥\s*[\d,]+|[\d,]+\s*円/;
+  doc.querySelectorAll('*').forEach(function(e,i){if(!re.test(e.textContent)||e.children.length>6)return;if(/^(SCRIPT|STYLE|HEAD)$/.test(e.tagName))return;var t=e.textContent.trim(),m=t.match(/¥\s*([\d,]+)|([\d,]+)\s*円/);if(!m)return;var p=(m[1]||m[2]).replace(/,/g,'');var n=t.replace(/¥\s*[\d,]+|[\d,]+\s*円[\s\S]*/,'').trim().split('\n')[0].trim();if(!n||n.length>60||n.length<2||ns.has(n)||isJunk(n,sn))return;ns.add(n);foods.push({id:'imp_'+pk+'_'+ts+'_'+storeIdx+'_f'+i,park:pk,area:ar,store:sn,name:n,price:p,note:fl?'#'+fl:'',img:'',lat:null,lng:null,eaten:false,favorite:false});});
+  return{sn:sn,foods:foods,via:foods.length?'price-scan':'none'};
+}
+
+// 一覧ページから全レストランURLを収集
+var links=[...document.querySelectorAll('a')]
+  .map(function(a){return a.href;})
+  .filter(function(h){return /\/restaurant\/detail\/\d+/.test(h);})
+  .filter(function(v,i,arr){return arr.indexOf(v)===i;});
+if(!links.length){
+  document.body.removeChild(OV);
+  alert('レストランリンクが見つかりません。\nTDL/TDSのレストラン一覧ページで実行してください。');
+  return;
+}
+setSt('取得開始の確認',links.length+'店舗が見つかりました');
+var estMin=Math.ceil(links.length*4.5/60);
+var msg='全'+links.length+'店舗のメニューを取得します。\n\n【方式】iframeでJSレンダリング後に取得\n【時間】約'+estMin+'〜'+(estMin+2)+'分かかります\n\n開始しますか？';
+if(!confirm(msg)){document.body.removeChild(OV);return;}
+
+console.log('%c🏰 一括取得開始（iframeモード）：'+links.length+'店舗','color:#1a56b0;font-weight:bold;font-size:14px;');
+for(var idx=0;idx<links.length;idx++){
+  var url=links[idx];
+  setSt('取得中 ('+(idx+1)+'/'+links.length+')',url.replace('https://www.tokyodisneyresort.jp',''));
+  try{
+    var doc=await loadViaIframe(url);
+    if(!doc){console.warn('['+( idx+1)+'] iframeロード失敗:',url);errors.push(url);continue;}
+    var result=extractFromDoc(doc,url,idx);
+    allFoods=allFoods.concat(result.foods);
+    console.log('['+(idx+1)+'/'+links.length+'] '+result.sn+': '+result.foods.length+'件 ('+result.via+')');
+    // 最初のページのデバッグ
+    if(idx===0&&result.foods.length===0){
+      console.log('%c[DEBUG] 最初のページ診断','color:#e67e22;font-weight:bold;font-size:13px;');
+      console.log('¥あり:', doc.body.textContent.includes('¥'), '| 円あり:', doc.body.textContent.includes('円'));
+      console.log('テキスト文字数:', doc.body.textContent.length);
+      // 価格が含まれていそうな要素を探す
+      var priceEls=[];doc.querySelectorAll('*').forEach(function(e){if(e.children.length===0){var t=e.textContent.trim();if(t.includes('¥')||t.includes('円')||/\d{3,5}/.test(t))priceEls.push(e.tagName+'.'+e.className.slice(0,30)+': '+t.slice(0,60));}});
+      console.log('価格候補要素:', priceEls.slice(0,10));
+      // ページ内のAPI呼び出しを確認（iframeのperformance経由）
+      try{var iwin=doc.defaultView;if(iwin&&iwin.performance){
+        var perfR=iwin.performance.getEntriesByType('resource');
+        var apiCalls=perfR.filter(function(r){return (r.initiatorType==='xmlhttprequest'||r.initiatorType==='fetch')&&!r.name.match(/google|gtm|facebook|twitter|analytics|doubleclick/i);});
+        if(apiCalls.length)console.log('API呼び出し:', apiCalls.map(function(r){return r.name;}));
+        else console.log('API呼び出し: なし（または追跡不可）');
+      }}catch(e){}
+      console.log('HTML先頭1000文字:', doc.body.innerHTML.slice(0,1000));
+    }
+  }catch(e){
+    console.warn('エラー:',url,e.message);
+    errors.push(url);
+  }
+}
+document.body.removeChild(OV);
+if(!allFoods.length){
+  alert('メニューが取得できませんでした。\n\nF12コンソールの[DEBUG]行のHTMLを\n開発者に共有してください。');
+  return;
+}
+var json=JSON.stringify(allFoods,null,2);
+var a=document.createElement('a');
+a.href=URL.createObjectURL(new Blob([json],{type:'application/json;charset=utf-8'}));
+a.download=(park==='tdl'?'TDL':'TDS')+'_全店舗メニュー_'+ts+'.json';
+document.body.appendChild(a);a.click();document.body.removeChild(a);
+var msg2='✅ 取得完了！\n'+links.length+'店舗 / '+allFoods.length+'件\n';
+if(errors.length)msg2+='⚠️ 取得失敗: '+errors.length+'店舗\n';
+msg2+='\nダウンロードされたJSONを\nアプリの「同期→JSONインポート」で読み込んでください。';
+alert(msg2);
+})();`;
+
+function showScriptModal() {
+  closeSyncModal();
+  document.getElementById('script-textarea').value = EXTRACTOR_SCRIPT;
+  document.getElementById('script-textarea-bulk').value = BULK_EXTRACTOR_SCRIPT;
+  switchScriptTab('single');
+  document.getElementById('script-modal').classList.add('open');
+}
+
+function switchScriptTab(tab) {
+  const isSingle = tab === 'single';
+  document.getElementById('tab-content-single').style.display = isSingle ? '' : 'none';
+  document.getElementById('tab-content-bulk').style.display  = isSingle ? 'none' : '';
+  document.getElementById('tab-single').style.background = isSingle ? 'var(--primary)' : '#fff';
+  document.getElementById('tab-single').style.color      = isSingle ? '#fff' : 'var(--text-light)';
+  document.getElementById('tab-single').style.borderColor= isSingle ? 'var(--primary)' : 'var(--border)';
+  document.getElementById('tab-bulk').style.background   = isSingle ? '#fff' : 'var(--accent)';
+  document.getElementById('tab-bulk').style.color        = isSingle ? 'var(--text-light)' : '#fff';
+  document.getElementById('tab-bulk').style.borderColor  = isSingle ? 'var(--border)' : 'var(--accent)';
+}
+
+async function copyBulkScript() {
+  const btn = document.getElementById('copy-bulk-btn');
+  try {
+    await navigator.clipboard.writeText(BULK_EXTRACTOR_SCRIPT);
+  } catch(e) {
+    const ta = document.getElementById('script-textarea-bulk');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+  }
+  btn.textContent = '✅ コピーしました！';
+  setTimeout(() => { btn.textContent = '📋 コピー'; }, 2500);
+}
+function closeScriptModal() {
+  document.getElementById('script-modal').classList.remove('open');
+}
+function closeScriptOnBg(e) {
+  if (e.target === document.getElementById('script-modal')) closeScriptModal();
+}
+async function copyExtractScript() {
+  const text = EXTRACTOR_SCRIPT;
+  const btn = document.getElementById('copy-script-btn');
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch(e) {
+    // フォールバック
+    const ta = document.getElementById('script-textarea');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+  }
+  btn.textContent = '✅ コピーしました！';
+  btn.style.background = 'var(--eaten)';
+  setTimeout(() => { btn.textContent = '📋 コピー'; btn.style.background = ''; }, 2500);
+}
+
+// ─── Sync ─────────────────────────────────────────────────────────────────
+function applyViewMode() {
+  if (VIEW_MODE) {
+    document.body.classList.add('view-mode');
+    document.getElementById('viewmode-send-section').style.display = '';
+    document.getElementById('viewmode-recv-section').style.display = '';
+    // マップタップで新規追加させない
+    map.off('click');
+  }
+}
+
+function exitViewMode() {
+  if (!confirm('編集モードに切り替えますか？\n（スマホでのデータ編集はPCと別々になります）')) return;
+  localStorage.removeItem('disney_view_mode');
+  location.reload();
+}
+
+async function copyViewModeLink() {
+  const url = `${location.origin}${location.pathname}?view=1`;
+  try { await navigator.clipboard.writeText(url); }
+  catch(e) { prompt('このリンクをコピーしてスマホに送ってください:', url); return; }
+  showToast('📱 スマホ用リンクをコピーしました！LINEで自分に送ってください');
+}
+
+function openSyncModal() {
+  document.getElementById('qr-wrap').classList.remove('visible');
+  document.getElementById('sync-code-box').classList.remove('visible');
+  const scbv = document.getElementById('sync-code-box-view');
+  if (scbv) scbv.classList.remove('visible');
+  const sci = document.getElementById('sync-code-in');
+  if (sci) sci.value = '';
+  const sciv = document.getElementById('sync-code-in-view');
+  if (sciv) sciv.value = '';
+  document.getElementById('sync-modal').classList.add('open');
+}
+function closeSyncModal() {
+  document.getElementById('sync-modal').classList.remove('open');
+}
+function closeSyncOnBg(e) {
+  if (e.target === document.getElementById('sync-modal')) closeSyncModal();
+}
+
+// データをbase64エンコード（日本語対応）
+function encodeData() {
+  const json = JSON.stringify(foods);
+  // TextEncoder → Uint8Array → binary string → base64
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+// base64デコード（日本語対応・URL安全base64にも対応）
+function decodeData(b64) {
+  // URL安全base64 (- → +, _ → /) を標準base64に戻す
+  const std = b64.replace(/-/g, '+').replace(/_/g, '/');
+  // パディング補完
+  const padded = std + '='.repeat((4 - std.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// ─── 同期コード（コンパクトデルタ形式）────────────────────────────────────
+// プリセット：変更ありのもののみ {i,f,e,lt,ln} の短縮形式
+// インポート品：全フィールド（img除く）
+const PRESET_ID_SET = new Set(PRESET_FOODS.map(f => f.id));
+
+function buildSyncPayload() {
+  // v3: プリセットはデフォルトから変化した分のみ送信（コンパクト）
+  //     受信側が先にリセットしてから差分を適用するため古いデータは残らない
+  const presetDelta = [];
+  const imported    = [];
+  foods.forEach(f => {
+    if (PRESET_ID_SET.has(f.id)) {
+      if (f.favorite || f.eaten || f.lat != null) {
+        presetDelta.push({ i: f.id, f: f.favorite ? 1 : 0, e: f.eaten ? 1 : 0,
+          lt: f.lat, ln: f.lng });
+      }
+      // デフォルト（全falseかつ座標なし）は省略→受信側リセットで自動的にデフォルトになる
+    } else {
+      const { img, ...rest } = f;
+      imported.push(rest);
+    }
+  });
+  return { v: 3, reset: 1, p: presetDelta, m: imported };
+}
+
+function encodeSyncPayload(payload) {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+
+function decodeSyncPayload(code) {
+  const binary = atob(code.trim());
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function showSyncCode() {
+  if (!foods.length) { showToast('フードデータがまだありません'); return; }
+  const payload = buildSyncPayload();
+  const code = encodeSyncPayload(payload);
+  const pCount = payload.p.length, mCount = payload.m.length;
+  // VIEW_MODE ではスマホ用テキストエリアに出力
+  const boxId   = VIEW_MODE ? 'sync-code-box-view'  : 'sync-code-box';
+  const outId   = VIEW_MODE ? 'sync-code-out-view'  : 'sync-code-out';
+  const box = document.getElementById(boxId);
+  document.getElementById(outId).value = code;
+  box.classList.add('visible');
+  showToast(`🔑 同期コード生成完了（プリセット${payload.p.length}件＋追加メニュー${payload.m.length}件）`);
+}
+
+async function copySyncCode() {
+  const code = document.getElementById('sync-code-out').value;
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch(e) {
+    const ta = document.getElementById('sync-code-out');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+  }
+  const btn = document.querySelector('#sync-code-box .sync-code-copy');
+  if (btn) { const orig = btn.textContent; btn.textContent = '✅ コピー済み'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+}
+
+async function copySyncCodeView() {
+  const code = document.getElementById('sync-code-out-view').value;
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch(e) {
+    const ta = document.getElementById('sync-code-out-view');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+  }
+  const btn = document.querySelector('#sync-code-box-view .sync-code-copy');
+  if (btn) { const orig = btn.textContent; btn.textContent = '✅ コピー済み'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+  showToast('📋 コードをコピーしました。LINEで自分に送ってください');
+}
+
+function applySyncCodeFromInput() {
+  const code = (document.getElementById('sync-code-in').value || '').trim();
+  if (!code) { showToast('コードを貼り付けてください'); return; }
+  try {
+    const payload = decodeSyncPayload(code);
+    applySyncPayload(payload);
+    document.getElementById('sync-code-in').value = '';
+  } catch(e) {
+    showToast('⚠️ コードが正しくありません');
+  }
+}
+
+function applySyncCodeFromInputView() {
+  const code = (document.getElementById('sync-code-in-view').value || '').trim();
+  if (!code) { showToast('コードを貼り付けてください'); return; }
+  try {
+    const payload = decodeSyncPayload(code);
+    applySyncPayload(payload);
+    document.getElementById('sync-code-in-view').value = '';
+  } catch(e) {
+    showToast('⚠️ コードが正しくありません');
+  }
+}
+
+function applySyncPayload(payload) {
+  let changed = 0;
+
+  // v3: reset フラグがある場合、全プリセットをデフォルト状態に戻してから差分適用
+  //     → お気に入り解除・ピン削除が正確に反映される
+  if (payload.reset) {
+    foods.forEach(f => {
+      if (PRESET_ID_SET.has(f.id)) {
+        f.favorite = false; f.eaten = false; f.lat = null; f.lng = null;
+      }
+    });
+  }
+
+  // プリセットの差分を適用
+  if (Array.isArray(payload.p)) {
+    payload.p.forEach(delta => {
+      const food = foods.find(f => f.id === delta.i);
+      if (food) {
+        food.favorite = !!delta.f;
+        food.eaten    = !!delta.e;
+        food.lat      = delta.lt ?? null;
+        food.lng      = delta.ln ?? null;
+        changed++;
+      }
+    });
+  }
+
+  // インポート品は完全置き換え（プリセット以外を全削除してPCのデータに揃える）
+  if (Array.isArray(payload.m)) {
+    foods = foods.filter(f => PRESET_ID_SET.has(f.id));
+    payload.m.forEach(f => { foods.push(f); changed++; });
+  } else if (payload.v === 2 && Array.isArray(payload.m)) {
+    // v2 旧形式との後方互換（マージ方式）
+    const existingIds = new Set(foods.map(f => f.id));
+    const importedMap = Object.fromEntries(payload.m.map(f => [f.id, f]));
+    foods = foods.map(f => importedMap[f.id] ? { ...f, ...importedMap[f.id] } : f);
+    payload.m.filter(f => !existingIds.has(f.id)).forEach(f => { foods.push(f); changed++; });
+  }
+
+  save(); renderAllMarkers(); renderFavorites(); updateStats();
+  showToast(`✅ 同期完了！PCのデータに完全に揃えました`);
+  closeSyncModal();
+}
+
+// QRコードを表示（コンパクト形式使用）
+let _lastQRUrl = '';
+function showSyncQR() {
+  if (!foods.length) { showToast('フードデータがまだありません'); return; }
+  const payload = buildSyncPayload();
+  const encoded = encodeSyncPayload(payload);
+  const url = `${location.origin}${location.pathname}?d=${encoded}`;
+  _lastQRUrl = url;
+  const lineWrap = document.getElementById('qr-line-wrap');
+  document.getElementById('qr-wrap').classList.add('visible');
+  if (url.length <= 2500) {
+    // QRコードで送信可能
+    lineWrap.style.display = 'none';
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+    document.getElementById('qr-img').src = qrUrl;
+    document.getElementById('qr-img').style.display = '';
+    const pCount = payload.p.length, mCount = payload.m.length;
+    showToast(`📷 QR生成（変更${pCount}件＋追加${mCount}件）`);
+  } else {
+    // データが多くQR不可 → LINEリンクを案内
+    document.getElementById('qr-img').style.display = 'none';
+    lineWrap.style.display = '';
+    showToast('⚠️ データが多いためQRが使えません。リンクをコピーしてLINEで送ってください');
+  }
+}
+
+async function copyQRLink() {
+  if (!_lastQRUrl) return;
+  try {
+    await navigator.clipboard.writeText(_lastQRUrl);
+    showToast('🔗 リンクをコピーしました！LINEで自分に送ってください');
+  } catch(e) {
+    prompt('このURLをコピーしてスマホで開いてください：', _lastQRUrl);
+  }
+}
+
+// リンクをクリップボードにコピー（後方互換）
+async function copySyncLink() {
+  if (!foods.length) { showToast('フードデータがまだありません'); return; }
+  const payload = buildSyncPayload();
+  const encoded = encodeSyncPayload(payload);
+  const url = `${location.origin}${location.pathname}?d=${encoded}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('🔗 リンクをコピーしました！');
+  } catch(e) {
+    prompt('このURLをコピーして他のデバイスで開いてください：', url);
+  }
+}
+
+// JSONファイルとしてダウンロード
+function exportJSON() {
+  if (!foods.length) { showToast('フードデータがまだありません'); return; }
+  const json = JSON.stringify(foods, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'disney_foods.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('💾 ダウンロードしました');
+}
+
+// ─── ゴミデータフィルター ─────────────────────────────────────────────────
+// 公式サイト抽出時に混入するカテゴリ見出し・ページ情報等を除去
+const JUNK_NAME_SET = new Set([
+  '1個','2個','3個','1本','2本','3本','1枚','プラス','マークの説明',
+  'スウィーツ','ソフトドリンク','アルコールドリンク','アルコール',
+  'サイドディッシュ','スナック','お子様メニュー','お子様','フード','ドリンク',
+  'デザート','各種','メニュー','セット','サイド','追加','オプション',
+  'ランチ','ディナー','コース','アレルギー','アレルギー情報',
+]);
+function isJunkFoodName(name, storeName) {
+  if (!name || name.length < 2) return true;
+  if (name === storeName) return true;                           // 店舗名の繰り返し
+  if (name.includes('|') || name.includes('｜')) return true;   // ページタイトル
+  if (name.startsWith('【')) return true;                        // 【公式】等
+  if (name.endsWith('各種')) return true;                        // カテゴリ末尾
+  if (name.endsWith('メニュー') && name.length <= 12) return true; // 短いカテゴリ見出し
+  if (/^\d+(個|本|枚|皿|人前)$/.test(name)) return true;        // 数量ラベル
+  if (/<[a-z]+[\s>]/i.test(name)) return true;                  // HTMLタグ混入
+  if (/^\d+月\d+日/.test(name)) return true;                    // 日付お知らせ（新価格等）
+  if (name.includes('新価格') || name.includes('価格変更')) return true;
+  if (/javascript/i.test(name)) return true;                     // JSメッセージ
+  if (JUNK_NAME_SET.has(name)) return true;                      // 既知ゴミ
+  if (name.startsWith('「') && name.length > 25) return true;   // 長いイベントタイトル
+  return false;
+}
+
+// JSONファイルからインポート
+function importJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const raw = JSON.parse(e.target.result);
+      if (!Array.isArray(raw)) throw new Error('形式が違います');
+
+      // ゴミデータを除去してクリーンなリストを作成
+      const imported = raw.filter(f => !isJunkFoodName(f.name, f.store));
+      const removed  = raw.length - imported.length;
+
+      // IDが重複しないものだけ追加（マージ）
+      const existingIds = new Set(foods.map(f => f.id));
+      const newItems = imported.filter(f => !existingIds.has(f.id));
+      // 既存データも更新（eaten状態などを最新に）
+      const importedMap = Object.fromEntries(imported.map(f => [f.id, f]));
+      foods = foods.map(f => importedMap[f.id] ? { ...f, ...importedMap[f.id] } : f);
+      foods = [...foods, ...newItems];
+      save();
+      renderAllMarkers();
+      renderFavorites();
+      updateStats();
+      const msg = removed > 0
+        ? `✅ ${imported.length}件をインポートしました（ゴミデータ ${removed}件を自動除去）`
+        : `✅ ${imported.length}件をインポートしました`;
+      showToast(msg);
+      closeSyncModal();
+    } catch(err) {
+      showToast('⚠️ ファイルの読み込みに失敗しました');
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+  event.target.value = '';
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────
+function updateStats() {
+  const total = foods.length, eaten = foods.filter(f => f.eaten).length;
+  document.getElementById('stat-total').textContent   = total;
+  document.getElementById('stat-eaten').textContent   = eaten;
+  document.getElementById('stat-uneaten').textContent = total - eaten;
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && document.getElementById('modal').classList.contains('open'))
+    if (e.target.tagName !== 'TEXTAREA') saveFood();
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+// URLに同期データがあれば自動インポート（QRスキャン→アプリ起動 の場合）
+(function checkUrlImport() {
+  const params = new URLSearchParams(location.search);
+  const d = params.get('d');
+  if (!d) return;
+  // URLをクリーンにする（ブラウザ履歴に残さない）
+  history.replaceState(null, '', location.pathname);
+  try {
+    const decoded = decodeData(d);
+    // v2 コンパクト形式（{v:2, p:[], m:[]}）
+    if (decoded && typeof decoded === 'object' && decoded.v === 2) {
+      const pCount = (decoded.p || []).length;
+      const mCount = (decoded.m || []).length;
+      const msg = `📲 PCから同期データを受信しました。\n（変更${pCount}件 ＋ 追加${mCount}件）\n自動で反映しますか？`;
+      if (confirm(msg)) {
+        applySyncPayload(decoded);
+      }
+      return;
+    }
+    // 旧形式（配列）
+    if (Array.isArray(decoded) && decoded.length) {
+      const msg = `📲 ${decoded.length}件のフードデータを受信しました。\nインポートしますか？`;
+      if (confirm(msg)) {
+        const existingIds = new Set(foods.map(f => f.id));
+        const newItems = decoded.filter(f => !existingIds.has(f.id));
+        const importedMap = Object.fromEntries(decoded.map(f => [f.id, f]));
+        foods = foods.map(f => importedMap[f.id] ? { ...f, ...importedMap[f.id] } : f);
+        foods = [...foods, ...newItems];
+        save(); renderFavorites(); updateStats();
+        showToast(`✅ ${decoded.length}件をインポートしました`);
+      }
+    }
+  } catch(e) {
+    console.warn('URL import failed:', e);
+  }
+})();
+
+renderFavorites();
+updateStats();
+loadParkMap('tdl');
+updateHandleUI(52); // 初期ラベル設定
+applyViewMode(); // 閲覧モード適用（VIEW_MODE=true のとき）
+
+// 初回起動時：フードデータが空ならプリセットを提案
+if (!foods.length) {
+  setTimeout(() => {
+    const ok = confirm(
+      `🏰 ディズニー フードマップへようこそ！\n\n` +
+      `TDL・TDS の主要レストランとフード ${PRESET_FOODS.length}件の\n` +
+      `プリセットデータを読み込みますか？\n\n` +
+      `【含まれる内容】\n` +
+      `・TDL 全エリアのレストラン・スナック\n` +
+      `・TDS 全エリアのレストラン・スナック\n` +
+      `・ファンタジースプリングス（2024年開業）\n\n` +
+      `※ あとから「📲 同期」メニューでも読み込めます`
+    );
+    if (ok) {
+      const n = loadPresetFoods();
+      renderFavorites(); updateStats();
+      showToast(`✅ ${n}件のプリセットを読み込みました。一覧ボタンで確認できます！`);
+    }
+  }, 1200);
+}
+</script>
+</body>
+</html>
